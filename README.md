@@ -14,9 +14,9 @@ The system uses two different LLMs with separate roles:
 
 
 
-\* \*\*GPT\*\* acts as a data retrieval/planning agent.
+\- \*\*GPT\*\* acts as a data retrieval/planning agent.
 
-\* \*\*Claude\*\* acts as a time-series analysis and feedback agent.
+\- \*\*Claude\*\* acts as a time-series analysis and feedback agent.
 
 
 
@@ -24,27 +24,31 @@ The workflow retrieves real financial time-series data, analyzes it, determines 
 
 
 
-The prototype is inspired by the structured agentic workflow described in \*Structured Agentic Workflows for Financial Time-Series Modeling with LLMs and Reflective Feedback\*.
+The prototype is inspired by \*Structured Agentic Workflows for Financial Time-Series Modeling with LLMs and Reflective Feedback\*.
 
 
 
-The goal of this implementation is not to reproduce the full TS-Agent framework. Instead, it demonstrates several of its core ideas in a small and understandable system:
+The goal is not to reproduce the full TS-Agent framework. Instead, this implementation demonstrates several of its core ideas in a smaller and more understandable system:
 
 
 
-\* specialized agent roles
+\- specialized agent roles
 
-\* external tool use
+\- external tool use
 
-\* structured agent-to-agent communication
+\- structured agent-to-agent communication
 
-\* iterative feedback
+\- iterative feedback
 
-\* stateful workflow execution
+\- stateful workflow execution
 
-\* logging and traceability
+\- logging and traceability
 
-\* modular architecture
+\- modular architecture
+
+
+
+\---
 
 
 
@@ -68,9 +72,7 @@ GPT Retriever Agent
 
 &#x20;   v
 
-Financial Data Tool
-
-(yfinance)
+Financial Data Tool (yfinance)
 
 &#x20;   |
 
@@ -118,11 +120,13 @@ Claude Analyst Agent
 
 
 
-All workflow decisions and results
-
-are saved to JSON execution logs.
+All workflow decisions and results are saved to JSON execution logs.
 
 ```
+
+
+
+\---
 
 
 
@@ -130,7 +134,7 @@ are saved to JSON execution logs.
 
 
 
-\### 1. User task
+\### 1. User Task
 
 
 
@@ -158,11 +162,11 @@ The GPT-based Retriever Agent determines:
 
 
 
-\* the stock ticker
+\- the stock ticker
 
-\* an appropriate initial historical period
+\- an appropriate initial historical period
 
-\* why that data is needed
+\- why that data is needed
 
 
 
@@ -178,7 +182,7 @@ Example:
 
 &#x20; "period": "3mo",
 
-&#x20; "reason": "Three months provides enough recent context..."
+&#x20; "reason": "Three months provides enough recent context to assess the current movement."
 
 }
 
@@ -194,7 +198,15 @@ A Python tool uses `yfinance` to retrieve daily closing-price observations.
 
 
 
-The LLM does not generate the financial data itself. It decides what data is needed, and Python executes the retrieval.
+The LLM does not generate the financial data itself. Instead:
+
+
+
+1\. the Retriever Agent decides what data is needed
+
+2\. Python executes the retrieval
+
+3\. the resulting time-series data is passed to the Analyst Agent
 
 
 
@@ -206,11 +218,11 @@ Claude receives:
 
 
 
-\* the original user task
+\- the original user task
 
-\* the Retriever Agent's request
+\- the Retriever Agent's structured request
 
-\* the retrieved time-series observations
+\- the retrieved time-series observations
 
 
 
@@ -218,15 +230,15 @@ It returns a structured analysis including:
 
 
 
-\* overall trend
+\- overall trend
 
-\* unusual movements
+\- unusual movements
 
-\* whether more historical data is required
+\- whether more historical data is required
 
-\* the requested expanded time period
+\- the requested expanded time period
 
-\* the reasoning behind the request
+\- the reasoning behind the request
 
 
 
@@ -234,7 +246,7 @@ It returns a structured analysis including:
 
 
 
-If Claude determines that the initial dataset is insufficient, the orchestrator automatically performs another data retrieval.
+If Claude determines that the initial dataset is insufficient, the orchestrator automatically performs another data retrieval using the longer requested period.
 
 
 
@@ -242,7 +254,7 @@ The expanded dataset is then returned to Claude for a second-pass analysis.
 
 
 
-This allows the later analysis to incorporate information discovered during the first pass.
+This allows the final analysis to incorporate information discovered during the first pass rather than relying on a fixed one-shot pipeline.
 
 
 
@@ -258,29 +270,33 @@ The log records:
 
 
 
-\* user task
+\- user task
 
-\* model assignments
+\- model assignments
 
-\* Retriever Agent output
+\- Retriever Agent output
 
-\* retrieval metadata
+\- first retrieval metadata
 
-\* first analysis
+\- first analysis
 
-\* feedback decision
+\- feedback decision
 
-\* second retrieval metadata
+\- second retrieval metadata
 
-\* final analysis
+\- final analysis
 
-\* workflow status
+\- workflow status
 
-\* errors, if any
+\- errors, if any
 
 
 
-Failed runs are also logged.
+Failed runs are logged as well.
+
+
+
+\---
 
 
 
@@ -304,6 +320,10 @@ agentic-timeseries/
 
 ├── requirements.txt
 
+├── README.md
+
+├── .gitignore
+
 ├── .env
 
 ├── logs/
@@ -322,7 +342,19 @@ Acts as the local orchestrator.
 
 
 
-It controls the order of execution, passes information between components, manages the feedback loop, and records workflow state.
+It:
+
+
+
+\- controls the order of execution
+
+\- passes information between components
+
+\- manages the feedback loop
+
+\- maintains workflow state
+
+\- records final results and errors
 
 
 
@@ -348,7 +380,17 @@ Analyst Agent: Claude
 
 
 
-It also handles structured JSON parsing and basic model-response errors.
+It also handles:
+
+
+
+\- structured JSON parsing
+
+\- Markdown code-fence cleanup
+
+\- basic model-response errors
+
+\- API-call failures
 
 
 
@@ -372,7 +414,7 @@ fetch\_stock\_data()
 
 
 
-retrieves financial time-series data using `yfinance`.
+This function retrieves financial time-series data using `yfinance`.
 
 
 
@@ -380,7 +422,11 @@ retrieves financial time-series data using `yfinance`.
 
 
 
-Saves execution traces to JSON files in the `logs/` directory.
+Saves execution traces to timestamped JSON files in the `logs/` directory.
+
+
+
+\---
 
 
 
@@ -434,6 +480,10 @@ python main.py
 
 
 
+\---
+
+
+
 \## Relationship to TS-Agent
 
 
@@ -442,25 +492,25 @@ The prototype implements a simplified subset of concepts from the TS-Agent paper
 
 
 
-| TS-Agent concept              | Current prototype                              |
+| TS-Agent concept | Current prototype |
 
-| ----------------------------- | ---------------------------------------------- |
+| --- | --- |
 
-| Structured workflow           | Local Python orchestrator                      |
+| Structured workflow | Local Python orchestrator |
 
-| Planner/model-selection logic | GPT Retriever Agent                            |
+| Planner/model-selection logic | GPT Retriever Agent |
 
-| External resources            | Financial data tool                            |
+| External resources | Financial data tool |
 
-| Execution feedback            | Claude can request expanded data               |
+| Execution feedback | Claude can request expanded data |
 
-| Iterative refinement          | Second-pass analysis                           |
+| Iterative refinement | Second-pass analysis |
 
-| Memory/context                | Workflow state passed between stages           |
+| Memory/context | Workflow state passed between stages |
 
-| Auditability                  | JSON execution logs                            |
+| Auditability | JSON execution logs |
 
-| Modular architecture          | Separate agents, tools, logging, orchestration |
+| Modular architecture | Separate agents, tools, logging, and orchestration |
 
 
 
@@ -468,21 +518,25 @@ Several major TS-Agent components are \*\*not yet implemented\*\*, including:
 
 
 
-\* Case Bank
+\- Case Bank
 
-\* Financial Time-Series Code Base
+\- Financial Time-Series Code Base
 
-\* Refinement Knowledge Bank
+\- Refinement Knowledge Bank
 
-\* automated forecasting-model selection
+\- automated forecasting-model selection
 
-\* automated code refinement
+\- automated code refinement
 
-\* hyperparameter optimization
+\- hyperparameter optimization
 
-\* execution-based model training
+\- execution-based model training
 
-\* multiple iterative refinement cycles
+\- multiple iterative refinement cycles
+
+
+
+\---
 
 
 
@@ -498,21 +552,27 @@ Current limitations include:
 
 
 
-\* only financial stock-price data is supported
+\- only financial stock-price data is supported
 
-\* the tool currently retrieves closing prices only
+\- the tool currently retrieves closing prices only
 
-\* there is no statistical forecasting model yet
+\- there is no statistical forecasting model yet
 
-\* analysis is primarily LLM-based
+\- the analysis is primarily LLM-based
 
-\* feedback is limited to requesting a larger historical window
+\- feedback is limited to requesting a larger historical window
 
-\* only one optional refinement pass is performed
+\- only one optional refinement pass is performed
 
-\* agent outputs depend on model reasoning and may vary between runs
+\- agent outputs can vary between runs
 
-\* financial conclusions are demonstrations of workflow behavior, not investment advice
+\- model reasoning may not always be numerically or statistically rigorous
+
+\- financial conclusions are demonstrations of workflow behavior, not investment advice
+
+
+
+\---
 
 
 
@@ -524,27 +584,31 @@ Possible extensions include:
 
 
 
-\* supporting multiple time-series datasets
+\- supporting multiple time-series datasets
 
-\* adding economic, epidemiological, or environmental data sources
+\- adding economic, epidemiological, or environmental data sources
 
-\* allowing multiple feedback iterations
+\- allowing multiple feedback iterations
 
-\* adding quantitative statistical features before LLM analysis
+\- adding quantitative statistical features before LLM analysis
 
-\* comparing homogeneous and heterogeneous agent configurations
+\- comparing homogeneous and heterogeneous agent configurations
 
-\* testing different Retriever/Analyst model combinations
+\- testing different Retriever/Analyst model combinations
 
-\* introducing forecasting models
+\- introducing forecasting models
 
-\* evaluating whether feedback improves analysis quality
+\- evaluating whether feedback improves analysis quality
 
-\* measuring consistency and failure rates across repeated runs
+\- measuring consistency and failure rates across repeated runs
 
-\* adding a model or knowledge bank inspired by TS-Agent
+\- adding a model or knowledge bank inspired by TS-Agent
 
-\* investigating how agent specialization affects time-series reasoning
+\- investigating how agent specialization affects time-series reasoning
+
+
+
+\---
 
 
 
@@ -556,21 +620,19 @@ The current implementation is intended as a starting point for exploring structu
 
 
 
-A longer-term research direction could investigate questions such as:
+Longer-term research questions could include:
 
 
 
-\* Does specialization between LLM agents improve performance?
+\- Does specialization between LLM agents improve performance?
 
-\* Do heterogeneous model combinations behave differently from single-model systems?
+\- Do heterogeneous model combinations behave differently from single-model systems?
 
-\* When does reflective feedback improve time-series analysis?
+\- When does reflective feedback improve time-series analysis?
 
-\* How should agents decide when additional data is necessary?
+\- How should agents decide when additional data is necessary?
 
-\* How reliable are agentic workflows across repeated runs?
+\- How reliable are agentic workflows across repeated runs?
 
-\* What forms of memory or structured feedback produce the most useful refinement?
-
-
+\- What forms of memory or structured feedback produce the most useful refinement?
 
