@@ -4,7 +4,7 @@
 
 This project is a local research prototype for structured agentic time-series analysis.
 
-It currently includes two workflows:
+It currently includes three major capabilities:
 
 1. **Financial time-series analysis**
    - GPT acts as a retrieval/planning agent.
@@ -16,6 +16,13 @@ It currently includes two workflows:
    - Python performs deterministic preprocessing on influenza hospitalization data.
    - Claude analyzes seasonal and spatiotemporal patterns.
    - The workflow can optionally perform a second-pass analysis using more detailed season-level data.
+   - The workflow generates a visual summary as PNG plots.
+
+3. **NeuralForecast LSTM forecasting**
+   - A Nixtla NeuralForecast `LSTM` model is trained on U.S. national FluSight data through September 2025.
+   - The model is evaluated on October 2025 through May 2026.
+   - Forecasts are evaluated at 1-, 2-, 3-, and 4-week horizons.
+   - Model weights remain fixed during the test period.
 
 The prototype is inspired by *Structured Agentic Workflows for Financial Time-Series Modeling with LLMs and Reflective Feedback*.
 
@@ -28,6 +35,8 @@ The goal is not to reproduce the full TS-Agent framework. Instead, this implemen
 - stateful workflow execution
 - deterministic preprocessing
 - scope-aware planning
+- visual summaries
+- neural forecasting
 - logging and traceability
 - modular architecture
 - automated workflow evaluation
@@ -114,8 +123,14 @@ Claude FluSight Analyst
                     |
                     v
                Final Analysis
+                    |
+                    v
+          Python Visual Summary
+                    |
+                    v
+               PNG Plots
 
-All workflow decisions and results are saved to JSON execution logs.
+All workflow decisions, results, and generated plot paths are saved to JSON execution logs.
 ```
 
 ---
@@ -182,26 +197,9 @@ If Claude determines that the initial dataset is insufficient, the orchestrator 
 
 The expanded dataset is then returned to Claude for a second-pass analysis.
 
-This allows the final analysis to incorporate additional context discovered during the first pass rather than relying on a fixed one-shot pipeline.
-
 ### 6. Execution Logging
 
 Each workflow run is saved as a timestamped JSON file in the `logs/` directory.
-
-The log records:
-
-- user task
-- model assignments
-- Retriever Agent output
-- first retrieval metadata
-- first analysis
-- feedback decision
-- second retrieval metadata
-- final analysis
-- workflow status
-- errors, if any
-
-Failed runs are logged as well.
 
 ---
 
@@ -370,8 +368,6 @@ These classifications are relative to each season and are not fixed calendar cat
 
 Claude can optionally request deeper detail for one season.
 
-Example:
-
 ```text
 First Pass
     |
@@ -384,15 +380,6 @@ Python builds an exact detailed season summary
     v
 Claude performs a second-pass analysis
 ```
-
-The detailed Python summary can include:
-
-- exact peak-date distribution
-- early / typical / late jurisdiction lists
-- timing-group counts
-- timing-group rate statistics
-- jurisdiction-level peak rates
-- highest and lowest peak-rate jurisdictions
 
 The second pass is constrained to terminate the refinement loop.
 
@@ -422,8 +409,6 @@ return needs_more_detail = false
 
 It may not request a different historical season.
 
-This prevents a downstream agent from silently violating the planner's decision.
-
 ---
 
 ## Scientific Interpretation Rules
@@ -452,7 +437,46 @@ Possible explanations are instead placed under:
 }
 ```
 
-This helps separate descriptive findings from unsupported causal interpretation.
+---
+
+## Visual Summary Generation
+
+The FluSight workflow generates deterministic visual summaries with Matplotlib.
+
+Current plots include:
+
+1. **U.S. weekly influenza hospitalization rate**
+2. **Jurisdiction peak timing by flu season**
+3. **Jurisdiction peak dates for a selected season**
+
+Representative outputs are stored in:
+
+```text
+plots/
+```
+
+The main FluSight workflow automatically generates these plots near the end of a successful run and stores their paths in the JSON execution log.
+
+Example:
+
+```json
+{
+  "visual_summary": {
+    "national_weekly_rate": "plots/national_weekly_hospitalization_rate.png",
+    "cross_season_timing_groups": "plots/cross_season_peak_timing_groups.png",
+    "season_peak_timing": "plots/jurisdiction_peak_timing_2024_2025.png",
+    "selected_season": "2024-2025"
+  }
+}
+```
+
+### Example Visuals
+
+![US weekly influenza hospitalization rate](plots/national_weekly_hospitalization_rate.png)
+
+![Jurisdiction peak timing by season](plots/cross_season_peak_timing_groups.png)
+
+![Jurisdiction peak timing for 2024-2025](plots/jurisdiction_peak_timing_2024_2025.png)
 
 ---
 
@@ -492,7 +516,90 @@ Output length compliance:    3/3
 Workflow completion:         3/3
 ```
 
-Evaluation results are saved as timestamped JSON files in `logs/`.
+---
+
+## NeuralForecast LSTM Forecasting
+
+The repository also contains a standalone U.S. national influenza forecasting experiment using Nixtla's NeuralForecast package.
+
+File:
+
+```text
+lstm_forecast.py
+```
+
+### Forecasting Task
+
+The experiment follows this setup:
+
+```text
+Target:
+US national weekly influenza hospitalization rate
+
+Training period:
+2022-02-05 through 2025-09-27
+
+Test period:
+2025-10-04 through 2026-05-30
+
+Forecast horizons:
+1, 2, 3, and 4 weeks ahead
+```
+
+The model is fitted once before the test period.
+
+During evaluation:
+
+```text
+refit=False
+```
+
+so the learned LSTM parameters remain fixed throughout the held-out test window.
+
+The test period is evaluated with overlapping 4-week forecast windows using a 1-week step.
+
+### Model
+
+The baseline model uses:
+
+```text
+NeuralForecast LSTM
+forecast horizon: 4 weeks
+input size: 12 weeks
+hidden size: 64
+max training steps: 300
+scaler: standard
+frequency: weekly, Saturday
+```
+
+### Baseline Results
+
+The fixed-model baseline produced:
+
+| Forecast Horizon | Forecast Count | MAE | RMSE |
+| --- | ---: | ---: | ---: |
+| 1 week | 32 | 2.0027 | 4.2232 |
+| 2 weeks | 32 | 2.8343 | 6.3357 |
+| 3 weeks | 32 | 4.0751 | 9.3018 |
+| 4 weeks | 32 | 5.4759 | 12.7107 |
+
+Forecast error increases as lead time increases.
+
+The current baseline captures the broad seasonal rise and decline but substantially overpredicts the 2026 hospitalization peak.
+
+### LSTM Visuals
+
+![Fixed LSTM test forecasts](plots/lstm_fixed_us_forecast_test_period.png)
+
+![LSTM forecast error by horizon](plots/lstm_fixed_metrics_by_horizon.png)
+
+Generated forecast CSV files are written to:
+
+```text
+forecast_results/
+```
+
+This directory is ignored by Git because the files can be regenerated from the source data and script.
 
 ---
 
@@ -504,6 +611,8 @@ agentic-timeseries/
 ├── agents.py
 ├── tools.py
 ├── logger.py
+├── visualizations.py
+├── lstm_forecast.py
 |
 ├── main.py
 ├── main_nvda.py
@@ -517,7 +626,10 @@ agentic-timeseries/
 │   └── target-hospital-admissions.csv
 |
 ├── diagrams/
+├── plots/
 ├── logs/
+├── forecast_results/
+├── lightning_logs/
 |
 ├── requirements.txt
 ├── README.md
@@ -545,6 +657,7 @@ metadata
 -> first-pass analyst
 -> optional detailed retrieval
 -> optional second-pass analyst
+-> visual summary
 -> log
 ```
 
@@ -568,41 +681,17 @@ run_flu_analyst_agent()
 run_flu_second_pass_analyst()
 ```
 
-It also handles:
-
-- structured JSON parsing
-- Markdown code-fence cleanup
-- model-response validation
-- API-call failures
-- deterministic scope validation
-
 ### `tools.py`
 
-Contains deterministic data tools.
+Contains deterministic financial and epidemiological data tools.
 
-Financial:
+### `visualizations.py`
 
-```text
-fetch_stock_data()
-```
+Generates the FluSight visual summary plots.
 
-FluSight:
+### `lstm_forecast.py`
 
-```text
-load_flu_data()
-prepare_flu_data()
-summarize_flu_dataset()
-summarize_national_seasons()
-summarize_state_peaks()
-summarize_peak_timing()
-classify_peak_timing()
-summarize_peak_rate_statistics()
-summarize_timing_group_rates()
-summarize_peak_rate_extremes()
-summarize_cross_season_peak_timing()
-build_detailed_season_summary()
-build_flu_summary_for_scope()
-```
+Runs the fixed-model NeuralForecast LSTM experiment and generates forecast metrics and plots.
 
 ### `logger.py`
 
@@ -618,47 +707,63 @@ Tests whether different user tasks produce different planner scopes.
 
 ### `evaluate_flu.py`
 
-Runs structured evaluation checks across multiple representative FluSight tasks.
+Runs structured evaluation checks across representative FluSight tasks.
 
 ---
 
-## Setup
+# Run on Your Own Machine
 
-### 1. Clone the repository
+## 1. Clone the Repository
 
 ```bash
 git clone https://github.com/sriixz/agentic-timeseries.git
 cd agentic-timeseries
 ```
 
-### 2. Create a virtual environment
+## 2. Create a Virtual Environment
 
 ```bash
 python -m venv .venv
 ```
 
-PowerShell:
+### Windows PowerShell
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .venv\Scripts\Activate.ps1
 ```
 
-Command Prompt:
+### Windows Command Prompt
 
 ```cmd
 .venv\Scripts\activate.bat
 ```
 
-### 3. Install dependencies
+### macOS / Linux
+
+```bash
+source .venv/bin/activate
+```
+
+## 3. Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Create `.env`
+This installs the packages required for:
 
-Create a `.env` file containing:
+- OpenAI API access
+- Anthropic API access
+- `yfinance`
+- pandas
+- Matplotlib
+- NeuralForecast
+- PyTorch / PyTorch Lightning dependencies
+
+## 4. Add API Keys
+
+Create a `.env` file in the project root:
 
 ```text
 OPENAI_API_KEY=your_openai_api_key
@@ -667,9 +772,9 @@ ANTHROPIC_API_KEY=your_anthropic_api_key
 
 API keys should never be committed to version control.
 
----
+> **Note:** The current agentic workflow uses both OpenAI and Anthropic. A future improvement is to make the model provider configurable so the system can run with a single provider/API key if desired.
 
-## FluSight Data Setup
+## 5. Add the FluSight Dataset
 
 Create:
 
@@ -683,57 +788,138 @@ Place the FluSight hospitalization target file at:
 data/target-hospital-admissions.csv
 ```
 
+Expected columns:
+
+```text
+date
+location
+location_name
+value
+weekly_rate
+```
+
 The `data/` directory is ignored by Git.
 
 CDC FluSight forecast hub:
 
 https://github.com/cdcepi/FluSight-forecast-hub
 
----
+## 6. Run the Financial Demos
 
-## Running the Project
-
-Apple stock demo:
+Apple:
 
 ```bash
 python main.py
 ```
 
-NVIDIA stock demo:
+NVIDIA:
 
 ```bash
 python main_nvda.py
 ```
 
-FluSight deterministic preprocessing test:
-
-```bash
-python test_flu.py
-```
-
-FluSight full workflow:
+## 7. Run the FluSight Agentic Workflow
 
 ```bash
 python main_flu.py
 ```
 
-Planner scope test:
+A successful run performs:
+
+```text
+dataset metadata
+-> GPT planning
+-> scope-specific deterministic preprocessing
+-> Claude analysis
+-> optional detailed-season feedback
+-> optional second-pass analysis
+-> visual summary generation
+-> JSON logging
+```
+
+Generated plots are saved in:
+
+```text
+plots/
+```
+
+Execution logs are saved in:
+
+```text
+logs/
+```
+
+## 8. Run the FluSight Tests
+
+Deterministic preprocessing:
+
+```bash
+python test_flu.py
+```
+
+Planner scope behavior:
 
 ```bash
 python test_flu_scopes.py
 ```
 
-FluSight evaluation harness:
+Evaluation harness:
 
 ```bash
 python evaluate_flu.py
+```
+
+## 9. Generate the Visual Summary Directly
+
+```bash
+python visualizations.py
+```
+
+This generates the current FluSight plots in:
+
+```text
+plots/
+```
+
+## 10. Run the NeuralForecast LSTM Experiment
+
+```bash
+python lstm_forecast.py
+```
+
+The experiment:
+
+```text
+trains on:
+2022 through September 2025
+
+tests on:
+October 2025 through May 2026
+
+produces:
+1-4 week ahead forecasts
+MAE and RMSE by forecast horizon
+forecast visualization
+error-by-horizon visualization
+```
+
+Generated CSV forecast results are saved in:
+
+```text
+forecast_results/
+```
+
+Generated plots are saved in:
+
+```text
+plots/
 ```
 
 ---
 
 ## Models
 
-Current model assignments:
+Current agent model assignments:
 
 ```text
 Planner / Retriever:
@@ -743,7 +929,13 @@ Analyst:
 Anthropic Claude Sonnet 4.5
 ```
 
-Python handles deterministic retrieval, preprocessing, and statistical summaries.
+Forecasting model:
+
+```text
+Nixtla NeuralForecast LSTM
+```
+
+Python handles deterministic retrieval, preprocessing, statistical summaries, visualization, and forecast evaluation.
 
 ---
 
@@ -754,15 +946,7 @@ Workflow runs are saved as timestamped JSON files.
 Example:
 
 ```text
-logs/run_2026-08-31_01-18-29.json
-```
-
-Evaluation runs are also logged.
-
-Example:
-
-```text
-logs/evaluation_2026-08-31_01-16-24.json
+logs/run_2026-09-02_23-28-50.json
 ```
 
 Logs can include:
@@ -775,6 +959,7 @@ Logs can include:
 - requested season
 - detailed retrieval
 - final analysis
+- visual summary paths
 - errors
 
 ---
@@ -792,7 +977,7 @@ The prototype implements a simplified subset of ideas from TS-Agent.
 | Iterative refinement | Optional second-pass analysis |
 | Memory/context | Workflow state passed between stages |
 | Auditability | JSON execution logs |
-| Modular architecture | Separate agents, tools, logging, and orchestration |
+| Modular architecture | Separate agents, tools, visualization, forecasting, logging, and orchestration |
 
 Several major TS-Agent components are not implemented, including:
 
@@ -813,17 +998,18 @@ This is still a research prototype.
 
 Current limitations include:
 
-- only one optional refinement pass
-- no statistical forecasting model
-- no automated model training
-- no hyperparameter tuning
+- the agentic workflow currently depends on cloud-hosted LLM APIs
+- the current implementation requires both OpenAI and Anthropic credentials
+- only one optional agentic refinement pass is supported
+- the LSTM is a baseline rather than a tuned forecasting model
+- no automated hyperparameter optimization
 - no long-term agent memory
 - no vector database
-- no formal statistical hypothesis testing
-- no causal inference
+- no formal causal inference
 - no sub-state epidemiological analysis
 - LLM interpretations can still contain factual or wording errors
-- evaluation currently focuses primarily on workflow behavior rather than full scientific correctness
+- workflow evaluation currently focuses more on control behavior than complete scientific correctness
+- forecast accuracy degrades substantially as the prediction horizon increases
 - financial outputs are workflow demonstrations, not investment advice
 
 ---
@@ -838,11 +1024,12 @@ Research questions include:
 - Do heterogeneous model combinations behave differently from single-model systems?
 - When does reflective feedback improve time-series analysis?
 - How should agents decide when additional data is necessary?
-- How reliable are agentic workflows across repeated runs?
 - Can deterministic preprocessing reduce unsupported numerical claims?
 - How often do LLM interpretations remain faithful to Python-generated facts?
 - How should scientific workflows separate observed evidence from hypotheses?
 - Does planner-controlled data selection improve efficiency or reliability?
+- How should forecasting models be incorporated into agentic workflows?
+- Can an agent select or critique a forecasting model based on observed performance?
 
 ---
 
@@ -853,17 +1040,18 @@ Possible extensions include:
 - repeated evaluation across many prompts
 - comparing GPT -> Claude against GPT -> GPT
 - comparing Claude -> Claude against mixed-model workflows
-- measuring planner consistency across repeated runs
 - automatically validating LLM statements against Python-generated facts
+- supporting a single configurable LLM provider
 - adding geographic metadata
 - adding epidemic duration and curve-shape features
-- comparing seasons statistically
-- detecting recurring jurisdiction-level timing patterns
+- comparing multiple forecasting architectures
+- tuning LSTM hyperparameters
+- comparing LSTM with NHITS, NBEATS, or statistical baselines
+- adding prediction intervals
+- adding nonnegative forecast constraints or transformations
 - testing whether feedback materially changes conclusions
-- adding multiple refinement cycles
+- allowing an agent to invoke forecasting models
 - testing additional epidemiological, environmental, or economic datasets
-- adding forecasting models
-- investigating how agent specialization affects time-series reasoning
 
 ---
 
@@ -874,9 +1062,13 @@ The broader motivation is to understand how LLM agents can operate as components
 ```text
 Python
 -> deterministic numerical layer
+-> visualization
+-> forecasting
 
 LLMs
--> planning, interpretation, and feedback
+-> planning
+-> interpretation
+-> feedback
 ```
 
 The long-term question is whether this combination can produce time-series analysis that is more adaptive, transparent, and reliable than a single unconstrained model call.
