@@ -3,3 +3,5 @@
 __pycache__/
 logs/
 data/
+forecast_results/
+lightning_logs/

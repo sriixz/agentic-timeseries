@@ -17,6 +17,10 @@ from tools import (
     build_detailed_season_summary,
 )
 
+from visualizations import (
+    generate_visual_summary,
+)
+
 from logger import save_log
 
 
@@ -47,6 +51,7 @@ jurisdictions and how those patterns change across seasons.
         "feedback": None,
         "season_detail": None,
         "final_analysis": None,
+        "visual_summary": None,
         "error": None,
     }
 
@@ -80,6 +85,7 @@ jurisdictions and how those patterns change across seasons.
         run_log["planner"] = planning_request
 
         print("\n--- FLUSIGHT PLANNER AGENT ---")
+
         print(
             json.dumps(
                 planning_request,
@@ -97,14 +103,23 @@ jurisdictions and how those patterns change across seasons.
         # STEP 3: Python builds data for GPT-selected scope
         # ----------------------------------------------------------
 
-        print("\n--- BUILDING PLANNER-SELECTED SUMMARY ---")
-        print(f"Selected scope: {analysis_scope}")
-
-        flu_summary = build_flu_summary_for_scope(
-            analysis_scope
+        print(
+            "\n--- BUILDING PLANNER-SELECTED SUMMARY ---"
         )
 
-        run_log["selected_summary"] = flu_summary
+        print(
+            f"Selected scope: {analysis_scope}"
+        )
+
+        flu_summary = (
+            build_flu_summary_for_scope(
+                analysis_scope
+            )
+        )
+
+        run_log["selected_summary"] = (
+            flu_summary
+        )
 
         print(
             json.dumps(
@@ -123,9 +138,14 @@ jurisdictions and how those patterns change across seasons.
             flu_summary,
         )
 
-        run_log["first_analysis"] = analysis
+        run_log["first_analysis"] = (
+            analysis
+        )
 
-        print("\n--- FIRST FLUSIGHT ANALYSIS ---")
+        print(
+            "\n--- FIRST FLUSIGHT ANALYSIS ---"
+        )
+
         print(
             json.dumps(
                 analysis,
@@ -152,7 +172,10 @@ jurisdictions and how those patterns change across seasons.
                     f"{requested_season}"
                 )
 
-            print("\n--- FEEDBACK TRIGGERED ---")
+            print(
+                "\n--- FEEDBACK TRIGGERED ---"
+            )
+
             print(
                 f"Analyst requested deeper detail for: "
                 f"{requested_season}"
@@ -160,7 +183,9 @@ jurisdictions and how those patterns change across seasons.
 
             run_log["feedback"] = {
                 "triggered": True,
-                "requested_season": requested_season,
+                "requested_season": (
+                    requested_season
+                ),
                 "reason": analysis["reason"],
             }
 
@@ -175,7 +200,9 @@ jurisdictions and how those patterns change across seasons.
             )
 
             run_log["season_detail"] = {
-                "season": season_detail["season"],
+                "season": (
+                    season_detail["season"]
+                ),
                 "jurisdiction_count": (
                     season_detail[
                         "jurisdiction_count"
@@ -228,7 +255,10 @@ jurisdictions and how those patterns change across seasons.
                 ),
             }
 
-            print("\n--- DETAILED SEASON RETRIEVAL ---")
+            print(
+                "\n--- DETAILED SEASON RETRIEVAL ---"
+            )
+
             print(
                 json.dumps(
                     run_log["season_detail"],
@@ -248,6 +278,8 @@ jurisdictions and how those patterns change across seasons.
                 )
             )
 
+            visual_season = requested_season
+
         else:
             run_log["feedback"] = {
                 "triggered": False,
@@ -255,14 +287,22 @@ jurisdictions and how those patterns change across seasons.
 
             final_analysis = analysis
 
+            # Use a complete recent season for
+            # the jurisdiction timing visualization.
+            visual_season = "2024-2025"
+
         # ----------------------------------------------------------
         # STEP 8: Final result
         # ----------------------------------------------------------
 
-        run_log["final_analysis"] = final_analysis
-        run_log["status"] = "success"
+        run_log["final_analysis"] = (
+            final_analysis
+        )
 
-        print("\n--- FINAL FLUSIGHT ANALYSIS ---")
+        print(
+            "\n--- FINAL FLUSIGHT ANALYSIS ---"
+        )
+
         print(
             json.dumps(
                 final_analysis,
@@ -270,11 +310,41 @@ jurisdictions and how those patterns change across seasons.
             )
         )
 
+        # ----------------------------------------------------------
+        # STEP 9: Generate visual summary
+        # ----------------------------------------------------------
+
+        visual_summary = (
+            generate_visual_summary(
+                season=visual_season
+            )
+        )
+
+        run_log["visual_summary"] = (
+            visual_summary
+        )
+
+        print(
+            "\n--- VISUAL SUMMARY ---"
+        )
+
+        print(
+            json.dumps(
+                visual_summary,
+                indent=2,
+            )
+        )
+
+        run_log["status"] = "success"
+
     except Exception as error:
         run_log["status"] = "failed"
         run_log["error"] = str(error)
 
-        print("\n--- FLUSIGHT WORKFLOW ERROR ---")
+        print(
+            "\n--- FLUSIGHT WORKFLOW ERROR ---"
+        )
+
         print(str(error))
 
     finally:
