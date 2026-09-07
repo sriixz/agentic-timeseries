@@ -5,3 +5,4 @@ logs/
 data/
 forecast_results/
 lightning_logs/
+analysis_results/
