@@ -14,15 +14,18 @@ It currently includes three major capabilities:
 2. **CDC FluSight hospitalization analysis**
    - GPT selects an analytical scope.
    - Python performs deterministic preprocessing on influenza hospitalization data.
+   - National trend analysis prioritizes raw hospitalization counts (`value`), while `weekly_rate` is used as a normalized secondary measure.
    - Claude analyzes seasonal and spatiotemporal patterns.
+   - Deterministic semantic and structural validation can trigger one constrained repair pass when unsupported claims are detected.
    - The workflow can optionally perform a second-pass analysis using more detailed season-level data.
-   - The workflow generates a visual summary as PNG plots.
+   - The workflow generates visual summaries as PNG plots.
 
-3. **NeuralForecast LSTM forecasting**
-   - A Nixtla NeuralForecast `LSTM` model is trained on U.S. national FluSight data through September 2025.
-   - The model is evaluated on October 2025 through May 2026.
+3. **NeuralForecast LSTM and AutoLSTM forecasting**
+   - A manually configured Nixtla NeuralForecast `LSTM` provides a fixed-weight baseline.
+   - `AutoLSTM` with the Optuna backend performs automated hyperparameter tuning on pre-test data only.
+   - Both models are evaluated on the same October 2025 through May 2026 held-out period.
    - Forecasts are evaluated at 1-, 2-, 3-, and 4-week horizons.
-   - Model weights remain fixed during the test period.
+   - The current AutoLSTM experiment substantially improves longer-horizon forecast errors.
 
 The prototype is inspired by *Structured Agentic Workflows for Financial Time-Series Modeling with LLMs and Reflective Feedback*.
 
@@ -37,6 +40,7 @@ The goal is not to reproduce the full TS-Agent framework. Instead, this implemen
 - scope-aware planning
 - visual summaries
 - neural forecasting
+- automated hyperparameter optimization
 - logging and traceability
 - modular architecture
 - automated workflow evaluation
@@ -293,6 +297,9 @@ Instead, Python computes structured features first.
 
 Examples include:
 
+- national season-level hospitalization-count trends
+- week-over-week hospitalization-count changes
+- latest-available-season peak comparisons with past seasons
 - national seasonal peak dates
 - national peak hospitalization counts
 - national peak weekly rates
@@ -437,6 +444,24 @@ Possible explanations are instead placed under:
 }
 ```
 
+### Semantic and Structural Validation
+
+FluSight analyst outputs are checked after generation.
+
+The deterministic validator can flag:
+
+- unsupported causal or mechanistic wording
+- unsupported geographic generalizations
+- unsupported percentages or ratio-style claims
+- wording that overstates what partial seasons establish
+- selected structural violations such as excessive list lengths
+
+If violations are detected, the workflow performs one constrained Claude repair pass using the authoritative Python-generated data, the original analyst output, and the exact validator violations.
+
+The repaired output is validated again before the workflow continues.
+
+This layer reduces unsupported claims, but it does not prove that every natural-language statement is correct.
+
 ---
 
 ## Visual Summary Generation
@@ -446,8 +471,9 @@ The FluSight workflow generates deterministic visual summaries with Matplotlib.
 Current plots include:
 
 1. **U.S. weekly influenza hospitalization rate**
-2. **Jurisdiction peak timing by flu season**
-3. **Jurisdiction peak dates for a selected season**
+2. **U.S. hospitalization counts by flu season**
+3. **Jurisdiction peak timing by flu season**
+4. **Jurisdiction peak dates for a selected season**
 
 Representative outputs are stored in:
 
@@ -474,9 +500,55 @@ Example:
 
 ![US weekly influenza hospitalization rate](plots/national_weekly_hospitalization_rate.png)
 
+![US hospitalization counts by flu season](plots/us_hospitalization_counts_by_season.png)
+
 ![Jurisdiction peak timing by season](plots/cross_season_peak_timing_groups.png)
 
 ![Jurisdiction peak timing for 2024-2025](plots/jurisdiction_peak_timing_2024_2025.png)
+
+---
+
+## Standalone FluSight Trend Analysis
+
+The repository includes a deterministic national trend-analysis script:
+
+```text
+flu_trend_analysis.py
+```
+
+This analysis uses the FluSight `value` column as the primary measure because it represents the actual weekly number of influenza hospital admissions.
+
+The script compares the latest available season in the dataset with recent complete seasons and reports:
+
+- weekly hospital-admission counts
+- season peak counts and dates
+- latest observed value
+- week-over-week change
+- change from the observed seasonal peak
+- peak differences relative to prior seasons
+
+Representative national peaks:
+
+| Season | Status | Peak Date | Peak Admissions |
+| --- | --- | --- | ---: |
+| 2022-2023 | complete | 2022-12-03 | 26,835 |
+| 2023-2024 | complete | 2023-12-30 | 21,720 |
+| 2024-2025 | complete | 2025-02-08 | 55,718 |
+| 2025-2026 | partial in dataset | 2026-01-03 | 42,626 |
+
+The 2025-2026 season is described as the **latest available season in the dataset**, not necessarily the calendar-current season.
+
+Generated plot:
+
+![US hospitalization counts by flu season](plots/us_hospitalization_counts_by_season.png)
+
+Generated CSV summaries are written to:
+
+```text
+analysis_results/
+```
+
+This directory is ignored by Git because the files can be regenerated.
 
 ---
 
@@ -603,6 +675,143 @@ This directory is ignored by Git because the files can be regenerated from the s
 
 ---
 
+## AutoLSTM Hyperparameter Optimization
+
+The repository also includes:
+
+```text
+autolstm_forecast.py
+```
+
+This experiment uses Nixtla's `AutoLSTM` with:
+
+```text
+backend = "optuna"
+```
+
+The goal is to compare automated hyperparameter tuning against the manually configured LSTM baseline without changing the forecasting target or held-out test period.
+
+### Leakage-Controlled Setup
+
+```text
+Target:
+US national weekly influenza hospitalization rate
+
+Pre-test data:
+through 2025-09-27
+
+Internal validation:
+last 16 weeks of pre-test data
+
+Held-out test:
+2025-10-04 through 2026-05-30
+
+Forecast horizons:
+1, 2, 3, and 4 weeks ahead
+```
+
+The held-out test period is not used for hyperparameter selection.
+
+After Optuna selects the best configuration, a standard `LSTM` is instantiated with those hyperparameters, fitted once on pre-test data, and evaluated with:
+
+```text
+refit=False
+```
+
+during the rolling held-out evaluation.
+
+### Optuna Search
+
+The current proof-of-concept uses 5 Optuna trials.
+
+The search space includes:
+
+- input size
+- encoder hidden size
+- encoder layer count
+- context size
+- decoder hidden size
+- learning rate
+- maximum training steps
+- batch size
+- random seed
+
+The input-size search is constrained to values that are feasible for the available time-series history.
+
+### Best AutoLSTM Configuration
+
+The best of the 5 trials produced a validation loss of approximately:
+
+```text
+0.079632
+```
+
+Selected configuration:
+
+```text
+input size: 12
+encoder hidden size: 16
+encoder layers: 3
+context size: 5
+decoder hidden size: 32
+learning rate: 0.0002561682458904924
+max training steps: 300
+batch size: 32
+random seed: 18
+scaler: standard
+forecast horizon: 4
+```
+
+### AutoLSTM Test Results
+
+| Forecast Horizon | Forecast Count | MAE | RMSE |
+| --- | ---: | ---: | ---: |
+| 1 week | 32 | 2.3543 | 4.8874 |
+| 2 weeks | 32 | 2.8447 | 5.3464 |
+| 3 weeks | 32 | 3.0911 | 5.4975 |
+| 4 weeks | 32 | 3.2461 | 5.3584 |
+
+AutoLSTM is not uniformly better than the manual baseline. It performs worse at the 1-week horizon, is nearly tied on 2-week MAE while improving 2-week RMSE, and improves substantially at 3- and 4-week horizons.
+
+### Manual LSTM vs AutoLSTM
+
+The comparison script:
+
+```text
+compare_lstm_models.py
+```
+
+loads the saved metrics from both forecasting experiments and computes the percent error reduction from the manual LSTM to AutoLSTM.
+
+| Horizon | Manual MAE | AutoLSTM MAE | MAE Improvement | Manual RMSE | AutoLSTM RMSE | RMSE Improvement |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 week | 2.0027 | 2.3543 | -17.55% | 4.2232 | 4.8874 | -15.73% |
+| 2 weeks | 2.8343 | 2.8447 | -0.37% | 6.3357 | 5.3464 | 15.61% |
+| 3 weeks | 4.0751 | 3.0911 | 24.15% | 9.3018 | 5.4975 | 40.90% |
+| 4 weeks | 5.4759 | 3.2461 | 40.72% | 12.7107 | 5.3584 | 57.84% |
+
+A positive improvement means AutoLSTM reduced forecast error. A negative value means the manual baseline performed better.
+
+### AutoLSTM and Comparison Visuals
+
+![AutoLSTM fixed-weight test forecasts](plots/autolstm_fixed_us_forecast_test_period.png)
+
+![AutoLSTM forecast error by horizon](plots/autolstm_fixed_metrics_by_horizon.png)
+
+![Manual LSTM vs AutoLSTM MAE](plots/lstm_vs_autolstm_mae.png)
+
+![Manual LSTM vs AutoLSTM RMSE](plots/lstm_vs_autolstm_rmse.png)
+
+Generated AutoLSTM CSV outputs are written to:
+
+```text
+forecast_results/
+```
+
+and remain ignored by Git.
+
+---
+
 ## Project Structure
 
 ```text
@@ -612,7 +821,10 @@ agentic-timeseries/
 ├── tools.py
 ├── logger.py
 ├── visualizations.py
+├── flu_trend_analysis.py
 ├── lstm_forecast.py
+├── autolstm_forecast.py
+├── compare_lstm_models.py
 |
 ├── main.py
 ├── main_nvda.py
@@ -628,6 +840,7 @@ agentic-timeseries/
 ├── diagrams/
 ├── plots/
 ├── logs/
+├── analysis_results/
 ├── forecast_results/
 ├── lightning_logs/
 |
@@ -655,6 +868,8 @@ metadata
 -> planner
 -> scope-specific Python summary
 -> first-pass analyst
+-> semantic + structural validation
+-> optional constrained repair
 -> optional detailed retrieval
 -> optional second-pass analyst
 -> visual summary
@@ -689,9 +904,21 @@ Contains deterministic financial and epidemiological data tools.
 
 Generates the FluSight visual summary plots.
 
+### `flu_trend_analysis.py`
+
+Runs deterministic national FluSight hospitalization-count trend analysis and generates season-comparison summaries and plots.
+
 ### `lstm_forecast.py`
 
-Runs the fixed-model NeuralForecast LSTM experiment and generates forecast metrics and plots.
+Runs the manually configured fixed-model NeuralForecast LSTM experiment and generates forecast metrics and plots.
+
+### `autolstm_forecast.py`
+
+Runs Optuna-backed NeuralForecast AutoLSTM hyperparameter tuning, fits the selected LSTM configuration, and evaluates it on the same held-out test period as the manual baseline.
+
+### `compare_lstm_models.py`
+
+Compares manual LSTM and AutoLSTM MAE/RMSE by forecast horizon and generates direct comparison plots.
 
 ### `logger.py`
 
@@ -849,7 +1076,15 @@ Execution logs are saved in:
 logs/
 ```
 
-## 8. Run the FluSight Tests
+## 8. Run the Standalone FluSight Trend Analysis
+
+```bash
+python flu_trend_analysis.py
+```
+
+This generates the count-based national season comparison and writes regenerated CSV summaries to `analysis_results/`.
+
+## 9. Run the FluSight Tests
 
 Deterministic preprocessing:
 
@@ -869,7 +1104,7 @@ Evaluation harness:
 python evaluate_flu.py
 ```
 
-## 9. Generate the Visual Summary Directly
+## 10. Generate the Visual Summary Directly
 
 ```bash
 python visualizations.py
@@ -881,7 +1116,7 @@ This generates the current FluSight plots in:
 plots/
 ```
 
-## 10. Run the NeuralForecast LSTM Experiment
+## 11. Run the NeuralForecast LSTM Experiment
 
 ```bash
 python lstm_forecast.py
@@ -917,6 +1152,42 @@ plots/
 
 ---
 
+## 12. Run the AutoLSTM Optuna Experiment
+
+```bash
+python autolstm_forecast.py
+```
+
+The current proof-of-concept performs 5 Optuna trials on pre-test data, selects the best configuration using temporal validation, fits that configuration once, and evaluates it on the same held-out test window as the manual LSTM.
+
+Generated CSV outputs are saved in:
+
+```text
+forecast_results/
+```
+
+Generated plots are saved in:
+
+```text
+plots/
+```
+
+## 13. Compare Manual LSTM and AutoLSTM
+
+```bash
+python compare_lstm_models.py
+```
+
+This produces:
+
+```text
+forecast_results/lstm_vs_autolstm_comparison.csv
+plots/lstm_vs_autolstm_mae.png
+plots/lstm_vs_autolstm_rmse.png
+```
+
+---
+
 ## Models
 
 Current agent model assignments:
@@ -929,10 +1200,11 @@ Analyst:
 Anthropic Claude Sonnet 4.5
 ```
 
-Forecasting model:
+Forecasting models:
 
 ```text
 Nixtla NeuralForecast LSTM
+Nixtla NeuralForecast AutoLSTM with Optuna
 ```
 
 Python handles deterministic retrieval, preprocessing, statistical summaries, visualization, and forecast evaluation.
@@ -978,16 +1250,16 @@ The prototype implements a simplified subset of ideas from TS-Agent.
 | Memory/context | Workflow state passed between stages |
 | Auditability | JSON execution logs |
 | Modular architecture | Separate agents, tools, visualization, forecasting, logging, and orchestration |
+| Hyperparameter optimization | AutoLSTM with Optuna on pre-test validation data |
 
 Several major TS-Agent components are not implemented, including:
 
 - Case Bank
 - Financial Time-Series Code Base
 - Refinement Knowledge Bank
-- automated forecasting-model selection
+- automated forecasting-model selection across multiple model families
 - automated code refinement
-- hyperparameter optimization
-- execution-based model training
+- agent-directed execution-based model training
 - multiple iterative refinement cycles
 
 ---
@@ -1001,15 +1273,15 @@ Current limitations include:
 - the agentic workflow currently depends on cloud-hosted LLM APIs
 - the current implementation requires both OpenAI and Anthropic credentials
 - only one optional agentic refinement pass is supported
-- the LSTM is a baseline rather than a tuned forecasting model
-- no automated hyperparameter optimization
+- the semantic validator reduces unsupported claims but does not prove that every natural-language statement is correct
+- AutoLSTM currently tunes only the LSTM family rather than selecting among multiple forecasting architectures
+- the current AutoLSTM result is based on a small 5-trial proof-of-concept search
 - no long-term agent memory
 - no vector database
 - no formal causal inference
 - no sub-state epidemiological analysis
-- LLM interpretations can still contain factual or wording errors
 - workflow evaluation currently focuses more on control behavior than complete scientific correctness
-- forecast accuracy degrades substantially as the prediction horizon increases
+- AutoLSTM improves longer horizons in the current experiment but performs worse than the manual LSTM at the 1-week horizon
 - financial outputs are workflow demonstrations, not investment advice
 
 ---
@@ -1044,8 +1316,8 @@ Possible extensions include:
 - supporting a single configurable LLM provider
 - adding geographic metadata
 - adding epidemic duration and curve-shape features
-- comparing multiple forecasting architectures
-- tuning LSTM hyperparameters
+- comparing multiple forecasting architectures and automated model-selection strategies
+- expanding the AutoLSTM Optuna search beyond the current 5-trial proof of concept
 - comparing LSTM with NHITS, NBEATS, or statistical baselines
 - adding prediction intervals
 - adding nonnegative forecast constraints or transformations
