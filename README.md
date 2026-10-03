@@ -49,7 +49,7 @@ The goal is not to reproduce the full TS-Agent framework. Instead, this implemen
 
 ## Architecture
 
-![Agentic time-series analysis workflow](diagrams/agentic_time_series_analysis_workflow.png)
+![Agentic Time-Series Architecture](images/agentic_timeseries_architecture.png)
 
 ### Financial Workflow
 
