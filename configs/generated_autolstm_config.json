@@ -1,0 +1,86 @@
+{
+  "model": "LSTM",
+  "location": "US",
+  "target": "weekly_rate",
+  "train_end": "2025-09-30",
+  "test_start": "2025-10-01",
+  "test_end": "2026-05-31",
+  "horizon": 4,
+  "validation_size": 16,
+  "num_samples": 5,
+  "frequency": "W-SAT",
+  "search_space": {
+    "input_size": {
+      "type": "categorical",
+      "values": [
+        8,
+        16,
+        32,
+        64,
+        128
+      ]
+    },
+    "inference_input_size": {
+      "type": "fixed",
+      "value": -1
+    },
+    "encoder_hidden_size": {
+      "type": "categorical",
+      "values": [
+        16,
+        32,
+        64
+      ]
+    },
+    "encoder_n_layers": {
+      "type": "int",
+      "low": 1,
+      "high": 3
+    },
+    "context_size": {
+      "type": "categorical",
+      "values": [
+        5,
+        10
+      ]
+    },
+    "decoder_hidden_size": {
+      "type": "categorical",
+      "values": [
+        16,
+        32,
+        64
+      ]
+    },
+    "learning_rate": {
+      "type": "float",
+      "low": 0.0001,
+      "high": 0.01,
+      "log": true
+    },
+    "max_steps": {
+      "type": "categorical",
+      "values": [
+        300,
+        500,
+        1000
+      ]
+    },
+    "batch_size": {
+      "type": "categorical",
+      "values": [
+        16,
+        32
+      ]
+    },
+    "random_seed": {
+      "type": "int",
+      "low": 1,
+      "high": 20
+    },
+    "scaler_type": {
+      "type": "fixed",
+      "value": "standard"
+    }
+  }
+}

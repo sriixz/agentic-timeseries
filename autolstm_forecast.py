@@ -1,81 +1,170 @@
+import json
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from epiweeks import Week
 from neuralforecast import NeuralForecast
 from neuralforecast.auto import AutoLSTM, OptunaOptions
 from neuralforecast.models import LSTM
 
 
 DATA_PATH = Path("data/target-hospital-admissions.csv")
+CONFIG_PATH = Path("configs/generated_autolstm_config.json")
 RESULTS_DIR = Path("forecast_results")
 PLOTS_DIR = Path("plots")
 
-TRAIN_END = pd.Timestamp("2025-09-30")
-TEST_START = pd.Timestamp("2025-10-01")
-TEST_END = pd.Timestamp("2026-05-31")
 
-HORIZON = 4
-VALIDATION_SIZE = 16
-NUM_SAMPLES = 5
-
-FREQ = "W-SAT"
-
-
-def prepare_national_weekly_rate():
+def load_experiment_config():
     """
-    Load national US weekly hospitalization-rate data
-    in NeuralForecast format.
+    Load the experiment specification and Optuna search
+    space from JSON.
     """
+
+    if not CONFIG_PATH.exists():
+        raise FileNotFoundError(
+            f"Configuration file not found: {CONFIG_PATH}"
+        )
+
+    with CONFIG_PATH.open(
+        "r",
+        encoding="utf-8",
+    ) as file:
+        config = json.load(file)
+
+    required_fields = {
+        "model",
+        "location",
+        "target",
+        "train_end",
+        "test_start",
+        "test_end",
+        "horizon",
+        "validation_size",
+        "num_samples",
+        "frequency",
+        "search_space",
+    }
+
+    missing_fields = (
+        required_fields
+        - set(config.keys())
+    )
+
+    if missing_fields:
+        raise ValueError(
+            "Configuration is missing required fields: "
+            f"{sorted(missing_fields)}"
+        )
+
+    if config["model"] != "LSTM":
+        raise ValueError(
+            "This trainer currently supports only LSTM. "
+            f"Received: {config['model']}"
+        )
+
+    return config
+
+
+def prepare_national_series(experiment_config):
+    """
+    Load the configured FluSight target and location in
+    NeuralForecast format.
+    """
+
+    location = experiment_config["location"]
+    target = experiment_config["target"]
 
     df = pd.read_csv(
         DATA_PATH,
         parse_dates=["date"],
     )
 
-    us_df = (
+    if target not in df.columns:
+        raise ValueError(
+            f"Target column '{target}' "
+            "was not found in the dataset."
+        )
+
+    location_df = (
         df[
-            df["location_name"] == "US"
+            df["location_name"]
+            == location
         ]
         .copy()
         .sort_values("date")
     )
 
-    us_df = us_df.dropna(
-        subset=["weekly_rate"]
+    if location_df.empty:
+        raise ValueError(
+            f"No observations found for location: "
+            f"{location}"
+        )
+
+    location_df = location_df.dropna(
+        subset=[target]
     )
 
     nf_df = pd.DataFrame(
         {
-            "unique_id": "US",
-            "ds": us_df["date"],
-            "y": us_df["weekly_rate"],
+            "unique_id": location,
+            "ds": location_df["date"],
+            "y": location_df[target],
         }
     )
 
     return nf_df.reset_index(drop=True)
 
 
-def split_data(full_df):
+def split_data(
+    full_df,
+    experiment_config,
+):
     """
-    Keep the same train/test split used by the
-    manual LSTM baseline.
+    Split the data using dates supplied by the
+    experiment configuration.
     """
 
+    train_end = pd.Timestamp(
+        experiment_config["train_end"]
+    )
+
+    test_start = pd.Timestamp(
+        experiment_config["test_start"]
+    )
+
+    test_end = pd.Timestamp(
+        experiment_config["test_end"]
+    )
+
     train_df = full_df[
-        full_df["ds"] <= TRAIN_END
+        full_df["ds"] <= train_end
     ].copy()
 
     test_df = full_df[
-        (full_df["ds"] >= TEST_START)
-        & (full_df["ds"] <= TEST_END)
+        (
+            full_df["ds"] >= test_start
+        )
+        & (
+            full_df["ds"] <= test_end
+        )
     ].copy()
 
     evaluation_df = full_df[
-        full_df["ds"] <= TEST_END
+        full_df["ds"] <= test_end
     ].copy()
+
+    if train_df.empty:
+        raise ValueError(
+            "Training split is empty."
+        )
+
+    if test_df.empty:
+        raise ValueError(
+            "Test split is empty."
+        )
 
     return (
         train_df,
@@ -84,75 +173,161 @@ def split_data(full_df):
     )
 
 
-def build_autolstm_config(trial):
+def suggest_parameter(
+    trial,
+    parameter_name,
+    specification,
+):
     """
-    Optuna search space for AutoLSTM.
+    Convert one JSON search-space specification into
+    the corresponding Optuna suggestion.
 
-    NeuralForecast's Optuna backend requires config
-    to be a callable that accepts an Optuna trial
-    and returns a model configuration dictionary.
+    Supported types:
+    - fixed
+    - categorical
+    - int
+    - float
     """
 
-    return {
-        "input_size": trial.suggest_categorical(
-            "input_size",
-            [12, 16, 24, 32, 52],
-        ),
-        "inference_input_size": -1,
-        "encoder_hidden_size": trial.suggest_categorical(
-            "encoder_hidden_size",
-            [16, 32, 64],
-        ),
-        "encoder_n_layers": trial.suggest_int(
-            "encoder_n_layers",
-            1,
-            3,
-        ),
-        "context_size": trial.suggest_categorical(
-            "context_size",
-            [5, 10],
-        ),
-        "decoder_hidden_size": trial.suggest_categorical(
-            "decoder_hidden_size",
-            [16, 32, 64],
-        ),
-        "learning_rate": trial.suggest_float(
-            "learning_rate",
-            1e-4,
-            1e-2,
-            log=True,
-        ),
-        "max_steps": trial.suggest_categorical(
-            "max_steps",
-            [300, 500, 1000],
-        ),
-        "batch_size": trial.suggest_categorical(
-            "batch_size",
-            [16, 32],
-        ),
-        "random_seed": trial.suggest_int(
-            "random_seed",
-            1,
-            20,
-        ),
-        "scaler_type": "standard",
-    }
+    parameter_type = specification["type"]
+
+    if parameter_type == "fixed":
+        return specification["value"]
+
+    if parameter_type == "categorical":
+        return trial.suggest_categorical(
+            parameter_name,
+            specification["values"],
+        )
+
+    if parameter_type == "int":
+        kwargs = {}
+
+        if "step" in specification:
+            kwargs["step"] = (
+                specification["step"]
+            )
+
+        if "log" in specification:
+            kwargs["log"] = (
+                specification["log"]
+            )
+
+        return trial.suggest_int(
+            parameter_name,
+            specification["low"],
+            specification["high"],
+            **kwargs,
+        )
+
+    if parameter_type == "float":
+        kwargs = {}
+
+        if "log" in specification:
+            kwargs["log"] = (
+                specification["log"]
+            )
+
+        if "step" in specification:
+            kwargs["step"] = (
+                specification["step"]
+            )
+
+        return trial.suggest_float(
+            parameter_name,
+            specification["low"],
+            specification["high"],
+            **kwargs,
+        )
+
+    raise ValueError(
+        f"Unsupported search-space type "
+        f"'{parameter_type}' for "
+        f"'{parameter_name}'."
+    )
 
 
-def tune_autolstm(train_df):
+def build_autolstm_config_factory(
+    experiment_config,
+):
     """
-    Tune AutoLSTM using Optuna on pre-test data only.
+    Build the callable required by NeuralForecast's
+    Optuna backend.
 
-    The final Oct 2025-May 2026 test period is not
-    included in hyperparameter selection.
+    The search space itself comes entirely from the
+    external JSON configuration.
     """
+
+    search_space = (
+        experiment_config["search_space"]
+    )
+
+    def build_autolstm_config(trial):
+        model_config = {}
+
+        for (
+            parameter_name,
+            specification,
+        ) in search_space.items():
+
+            model_config[
+                parameter_name
+            ] = suggest_parameter(
+                trial,
+                parameter_name,
+                specification,
+            )
+
+        return model_config
+
+    return build_autolstm_config
+
+
+def tune_autolstm(
+    train_df,
+    experiment_config,
+):
+    """
+    Tune AutoLSTM using the search space supplied by
+    the external configuration file.
+
+    The final test period remains excluded from
+    hyperparameter selection.
+    """
+
+    horizon = experiment_config["horizon"]
+
+    validation_size = (
+        experiment_config[
+            "validation_size"
+        ]
+    )
+
+    num_samples = (
+        experiment_config[
+            "num_samples"
+        ]
+    )
+
+    frequency = (
+        experiment_config[
+            "frequency"
+        ]
+    )
+
+    optuna_config = (
+        build_autolstm_config_factory(
+            experiment_config
+        )
+    )
 
     print(
         "\n--- AUTOLSTM OPTUNA TUNING ---"
     )
 
     print(
-        f"Training observations: {len(train_df)}"
+        f"Training observations: "
+        f"{len(train_df)}"
     )
 
     print(
@@ -163,11 +338,18 @@ def tune_autolstm(train_df):
     )
 
     print(
-        f"Validation size: {VALIDATION_SIZE} weeks"
+        f"Validation size: "
+        f"{validation_size} weeks"
     )
 
     print(
-        f"Optuna trials: {NUM_SAMPLES}"
+        f"Optuna trials: "
+        f"{num_samples}"
+    )
+
+    print(
+        f"Configuration source: "
+        f"{CONFIG_PATH}"
     )
 
     optuna_options = OptunaOptions(
@@ -181,10 +363,10 @@ def tune_autolstm(train_df):
     )
 
     auto_model = AutoLSTM(
-        h=HORIZON,
+        h=horizon,
         backend="optuna",
-        config=build_autolstm_config,
-        num_samples=NUM_SAMPLES,
+        config=optuna_config,
+        num_samples=num_samples,
         refit_with_val=False,
         optuna_options=optuna_options,
         verbose=True,
@@ -193,18 +375,16 @@ def tune_autolstm(train_df):
 
     nf = NeuralForecast(
         models=[auto_model],
-        freq=FREQ,
+        freq=frequency,
     )
 
     nf.fit(
         df=train_df,
-        val_size=VALIDATION_SIZE,
+        val_size=validation_size,
     )
 
     fitted_auto = nf.models[0]
-
     study = fitted_auto.results
-
     best_trial = study.best_trial
 
     best_config = (
@@ -257,25 +437,16 @@ def clean_best_config(best_config):
 
     config = best_config.copy()
 
-    config.pop(
+    for field in [
         "h",
-        None,
-    )
-
-    config.pop(
         "loss",
-        None,
-    )
-
-    config.pop(
         "valid_loss",
-        None,
-    )
-
-    config.pop(
         "alias",
-        None,
-    )
+    ]:
+        config.pop(
+            field,
+            None,
+        )
 
     config.setdefault(
         "scaler_type",
@@ -285,10 +456,13 @@ def clean_best_config(best_config):
     return config
 
 
-def build_fixed_lstm(best_config):
+def build_fixed_lstm(
+    best_config,
+    experiment_config,
+):
     """
     Convert the winning AutoLSTM configuration into
-    a normal LSTM for fixed-weight test evaluation.
+    a standard LSTM for fixed-weight evaluation.
     """
 
     config = clean_best_config(
@@ -296,7 +470,7 @@ def build_fixed_lstm(best_config):
     )
 
     model = LSTM(
-        h=HORIZON,
+        h=experiment_config["horizon"],
         **config,
     )
 
@@ -306,6 +480,7 @@ def build_fixed_lstm(best_config):
 def fit_fixed_model(
     train_df,
     best_config,
+    experiment_config,
 ):
     """
     Fit the selected LSTM once on all pre-test data.
@@ -317,12 +492,15 @@ def fit_fixed_model(
     )
 
     model = build_fixed_lstm(
-        best_config
+        best_config,
+        experiment_config,
     )
 
     nf = NeuralForecast(
         models=[model],
-        freq=FREQ,
+        freq=experiment_config[
+            "frequency"
+        ],
     )
 
     nf.fit(
@@ -338,12 +516,8 @@ def evaluate_fixed_model(
     test_df,
 ):
     """
-    Evaluate 1-4 week forecasts across the untouched
-    test period without updating model weights.
-
-    Later forecast origins may use observations that
-    would have been available by that origin, but
-    refit=False prevents weight updates.
+    Evaluate forecasts across the untouched test
+    period without updating model weights.
     """
 
     test_size = len(
@@ -355,7 +529,8 @@ def evaluate_fixed_model(
     )
 
     print(
-        f"Test observations: {test_size}"
+        f"Test observations: "
+        f"{test_size}"
     )
 
     print(
@@ -388,8 +563,9 @@ def evaluate_fixed_model(
 
     if len(prediction_columns) != 1:
         raise ValueError(
-            "Expected exactly one forecast column, "
-            f"found: {prediction_columns}"
+            "Expected exactly one forecast "
+            "column, found: "
+            f"{prediction_columns}"
         )
 
     prediction_column = (
@@ -464,7 +640,7 @@ def evaluate_fixed_model(
 
 def build_trial_table(study):
     """
-    Save a compact table of Optuna trials.
+    Create a compact table of Optuna trials.
     """
 
     rows = []
@@ -502,6 +678,11 @@ def save_results(
     best_config,
     best_validation_loss,
 ):
+    """
+    Save forecasts, metrics, Optuna trials, and the
+    winning configuration.
+    """
+
     RESULTS_DIR.mkdir(
         parents=True,
         exist_ok=True,
@@ -590,7 +771,14 @@ def save_results(
 def plot_test_forecasts(
     evaluation_df,
     cv_df,
+    experiment_config,
 ):
+    """
+    Plot observed values and one-week-ahead forecasts
+    across the configured test period using epiweek
+    labels on the x-axis.
+    """
+
     PLOTS_DIR.mkdir(
         parents=True,
         exist_ok=True,
@@ -601,14 +789,22 @@ def plot_test_forecasts(
         / "autolstm_fixed_us_forecast_test_period.png"
     )
 
+    test_start = pd.Timestamp(
+        experiment_config["test_start"]
+    )
+
+    test_end = pd.Timestamp(
+        experiment_config["test_end"]
+    )
+
     test_actuals = evaluation_df[
         (
             evaluation_df["ds"]
-            >= TEST_START
+            >= test_start
         )
         & (
             evaluation_df["ds"]
-            <= TEST_END
+            <= test_end
         )
     ].copy()
 
@@ -632,8 +828,41 @@ def plot_test_forecasts(
         label="AutoLSTM 1-week forecast",
     )
 
+    tick_dates = (
+        test_actuals["ds"]
+        .iloc[::4]
+        .tolist()
+    )
+
+    if (
+        len(test_actuals) > 0
+        and test_actuals["ds"].iloc[-1]
+        not in tick_dates
+    ):
+        tick_dates.append(
+            test_actuals["ds"].iloc[-1]
+        )
+
+    tick_labels = []
+
+    for date_value in tick_dates:
+        epiweek = Week.fromdate(
+            date_value.date()
+        )
+
+        tick_labels.append(
+            f"{epiweek.year}-EW{epiweek.week:02d}"
+        )
+
+    plt.xticks(
+        tick_dates,
+        tick_labels,
+        rotation=45,
+        ha="right",
+    )
+
     plt.xlabel(
-        "Date"
+        "Epidemiological week"
     )
 
     plt.ylabel(
@@ -646,7 +875,6 @@ def plot_test_forecasts(
     )
 
     plt.legend()
-
     plt.tight_layout()
 
     plt.savefig(
@@ -660,6 +888,10 @@ def plot_test_forecasts(
 
 
 def plot_metrics(metrics):
+    """
+    Plot MAE and RMSE by forecast horizon.
+    """
+
     PLOTS_DIR.mkdir(
         parents=True,
         exist_ok=True,
@@ -701,11 +933,11 @@ def plot_metrics(metrics):
     )
 
     plt.title(
-        "AutoLSTM Fixed-Weight Error by Forecast Horizon"
+        "AutoLSTM Fixed-Weight Error "
+        "by Forecast Horizon"
     )
 
     plt.legend()
-
     plt.tight_layout()
 
     plt.savefig(
@@ -718,17 +950,87 @@ def plot_metrics(metrics):
     return plot_path
 
 
+def print_experiment_config(
+    experiment_config,
+):
+    """
+    Print the external experiment configuration before
+    training begins.
+    """
+
+    print(
+        "\n--- EXPERIMENT CONFIGURATION ---"
+    )
+
+    print(
+        f"Model: "
+        f"{experiment_config['model']}"
+    )
+
+    print(
+        f"Location: "
+        f"{experiment_config['location']}"
+    )
+
+    print(
+        f"Target: "
+        f"{experiment_config['target']}"
+    )
+
+    print(
+        f"Training through: "
+        f"{experiment_config['train_end']}"
+    )
+
+    print(
+        "Test period: "
+        f"{experiment_config['test_start']} "
+        "to "
+        f"{experiment_config['test_end']}"
+    )
+
+    print(
+        f"Horizon: "
+        f"{experiment_config['horizon']} weeks"
+    )
+
+    print(
+        "\nSearch space:"
+    )
+
+    for (
+        parameter,
+        specification,
+    ) in experiment_config[
+        "search_space"
+    ].items():
+
+        print(
+            f"  {parameter}: "
+            f"{specification}"
+        )
+
+
 def main():
-    print(
-        "--- LOADING NATIONAL FLUSIGHT DATA ---"
+    experiment_config = (
+        load_experiment_config()
     )
 
-    full_df = (
-        prepare_national_weekly_rate()
+    print_experiment_config(
+        experiment_config
     )
 
     print(
-        f"Observations: {len(full_df)}"
+        "\n--- LOADING FLUSIGHT DATA ---"
+    )
+
+    full_df = prepare_national_series(
+        experiment_config
+    )
+
+    print(
+        f"Observations: "
+        f"{len(full_df)}"
     )
 
     print(
@@ -739,7 +1041,8 @@ def main():
     )
 
     print(
-        "\nForecast target: weekly_rate"
+        "\nForecast target: "
+        f"{experiment_config['target']}"
     )
 
     (
@@ -747,7 +1050,8 @@ def main():
         test_df,
         evaluation_df,
     ) = split_data(
-        full_df
+        full_df,
+        experiment_config,
     )
 
     print(
@@ -774,12 +1078,14 @@ def main():
         best_validation_loss,
         study,
     ) = tune_autolstm(
-        train_df
+        train_df,
+        experiment_config,
     )
 
     fixed_nf = fit_fixed_model(
         train_df,
         best_config,
+        experiment_config,
     )
 
     (
@@ -816,6 +1122,7 @@ def main():
         plot_test_forecasts(
             evaluation_df,
             cv_df,
+            experiment_config,
         )
     )
 
@@ -835,11 +1142,13 @@ def main():
         )
 
     print(
-        f"forecast_plot: {forecast_plot}"
+        f"forecast_plot: "
+        f"{forecast_plot}"
     )
 
     print(
-        f"metrics_plot: {metrics_plot}"
+        f"metrics_plot: "
+        f"{metrics_plot}"
     )
 
 
