@@ -3,6 +3,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from epiweeks import Week
 from tools import prepare_flu_data
 
 
@@ -42,7 +43,10 @@ def prepare_us_data():
     return us_df
 
 
-def summarize_season(season_df, season):
+def summarize_season(
+    season_df,
+    season,
+):
     """
     Produce deterministic count-based statistics
     for one flu season.
@@ -80,7 +84,8 @@ def summarize_season(season_df, season):
         )
 
         weekly_change = (
-            latest_value - previous_value
+            latest_value
+            - previous_value
         )
 
         if previous_value != 0:
@@ -104,8 +109,10 @@ def summarize_season(season_df, season):
 
     weeks_from_peak = int(
         (
-            latest_date - peak_date
-        ).days / 7
+            latest_date
+            - peak_date
+        ).days
+        / 7
     )
 
     if latest_date < peak_date:
@@ -118,50 +125,71 @@ def summarize_season(season_df, season):
         phase = "post-peak"
 
     return {
-        "season": season,
-        "start_date": first_row[
-            "date"
-        ].date(),
-        "end_date": latest_date.date(),
-        "observation_count": len(
-            season_df
-        ),
-        "latest_value": round(
-            latest_value,
-            2,
-        ),
-        "previous_value": (
+        "season":
+            season,
+
+        "start_date":
+            first_row["date"].date(),
+
+        "end_date":
+            latest_date.date(),
+
+        "observation_count":
+            len(season_df),
+
+        "latest_value":
             round(
-                previous_value,
+                latest_value,
                 2,
-            )
-            if previous_value is not None
-            else None
-        ),
-        "weekly_change": (
+            ),
+
+        "previous_value":
+            (
+                round(
+                    previous_value,
+                    2,
+                )
+                if previous_value
+                is not None
+                else None
+            ),
+
+        "weekly_change":
+            (
+                round(
+                    weekly_change,
+                    2,
+                )
+                if weekly_change
+                is not None
+                else None
+            ),
+
+        "weekly_percent_change":
+            (
+                round(
+                    weekly_percent_change,
+                    2,
+                )
+                if weekly_percent_change
+                is not None
+                else None
+            ),
+
+        "peak_date":
+            peak_date.date(),
+
+        "peak_value":
             round(
-                weekly_change,
+                peak_value,
                 2,
-            )
-            if weekly_change is not None
-            else None
-        ),
-        "weekly_percent_change": (
-            round(
-                weekly_percent_change,
-                2,
-            )
-            if weekly_percent_change
-            is not None
-            else None
-        ),
-        "peak_date": peak_date.date(),
-        "peak_value": round(
-            peak_value,
-            2,
-        ),
-        "phase": phase,
-        "weeks_from_peak": weeks_from_peak,
+            ),
+
+        "phase":
+            phase,
+
+        "weeks_from_peak":
+            weeks_from_peak,
     }
 
 
@@ -169,8 +197,8 @@ def build_season_summary_table(
     us_df,
 ):
     """
-    Summarize the current season and the three
-    recent complete historical seasons.
+    Summarize the latest available season and the
+    three recent complete historical seasons.
     """
 
     seasons = (
@@ -205,7 +233,7 @@ def build_current_season_trend(
 ):
     """
     Produce a concise deterministic description
-    of the current season.
+    of the latest available season.
     """
 
     current_df = (
@@ -234,7 +262,8 @@ def build_current_season_trend(
     ]
 
     decline_from_peak = (
-        latest_value - peak_value
+        latest_value
+        - peak_value
     )
 
     decline_percent = None
@@ -267,8 +296,8 @@ def compare_peak_values(
     summary_df,
 ):
     """
-    Compare the current-season national peak
-    hospitalization count with historical peaks.
+    Compare the latest available season's national
+    peak hospitalization count with historical peaks.
     """
 
     current_row = summary_df[
@@ -293,7 +322,8 @@ def compare_peak_values(
         )
 
         difference = (
-            current_peak - past_peak
+            current_peak
+            - past_peak
         )
 
         percent_difference = None
@@ -309,17 +339,22 @@ def compare_peak_values(
             {
                 "current_season":
                     CURRENT_SEASON,
+
                 "comparison_season":
                     season,
+
                 "current_peak_value":
                     current_peak,
+
                 "past_peak_value":
                     past_peak,
+
                 "difference":
                     round(
                         difference,
                         2,
                     ),
+
                 "percent_difference":
                     round(
                         percent_difference,
@@ -337,8 +372,13 @@ def plot_season_counts(
     us_df,
 ):
     """
-    Plot national hospitalization counts for the
-    recent seasons on a common seasonal-week axis.
+    Plot national hospitalization counts for recent
+    flu seasons using epidemiological week numbers.
+
+    Epiweeks are placed on a continuous seasonal axis
+    so that weeks after the New Year continue to the
+    right instead of wrapping backward from EW52/53
+    to EW01.
     """
 
     PLOTS_DIR.mkdir(
@@ -355,6 +395,8 @@ def plot_season_counts(
         figsize=(12, 6)
     )
 
+    all_positions = {}
+
     for season in seasons:
         season_df = (
             us_df[
@@ -368,21 +410,97 @@ def plot_season_counts(
         if season_df.empty:
             continue
 
+        epiweeks = []
+
+        for date_value in season_df["date"]:
+            epiweek = Week.fromdate(
+                date_value.date()
+            )
+
+            epiweeks.append(
+                epiweek.week
+            )
+
         season_df[
-            "season_week"
-        ] = range(
-            1,
-            len(season_df) + 1,
+            "epiweek"
+        ] = epiweeks
+
+        # Keep epiweeks in chronological flu-season
+        # order.
+        #
+        # Example:
+        # EW40 ... EW52, EW01 ... EW20
+        #
+        # Weeks after New Year are shifted right so
+        # they do not wrap backward on the x-axis.
+        season_df[
+            "epiweek_position"
+        ] = season_df[
+            "epiweek"
+        ].apply(
+            lambda week: (
+                week
+                if week >= 31
+                else week + 53
+            )
         )
+
+        for (
+            position,
+            week,
+        ) in zip(
+            season_df[
+                "epiweek_position"
+            ],
+            season_df[
+                "epiweek"
+            ],
+        ):
+            all_positions[
+                int(position)
+            ] = int(week)
 
         ax.plot(
             season_df[
-                "season_week"
+                "epiweek_position"
             ],
             season_df["value"],
             label=season,
             linewidth=2,
         )
+
+    sorted_positions = sorted(
+        all_positions.keys()
+    )
+
+    tick_positions = (
+        sorted_positions[::4]
+    )
+
+    if (
+        sorted_positions
+        and sorted_positions[-1]
+        not in tick_positions
+    ):
+        tick_positions.append(
+            sorted_positions[-1]
+        )
+
+    tick_labels = [
+        f"EW{all_positions[position]:02d}"
+        for position
+        in tick_positions
+    ]
+
+    ax.set_xticks(
+        tick_positions
+    )
+
+    ax.set_xticklabels(
+        tick_labels,
+        rotation=45,
+        ha="right",
+    )
 
     ax.set_title(
         "US Influenza Hospital Admissions "
@@ -390,7 +508,7 @@ def plot_season_counts(
     )
 
     ax.set_xlabel(
-        "Week of flu season"
+        "Epidemiological week"
     )
 
     ax.set_ylabel(
@@ -417,7 +535,9 @@ def plot_season_counts(
         bbox_inches="tight",
     )
 
-    plt.close(fig)
+    plt.close(
+        fig
+    )
 
     return output_path
 
@@ -469,13 +589,14 @@ def main():
     us_df = prepare_us_data()
 
     print(
-        f"US observations: {len(us_df)}"
+        f"US observations: "
+        f"{len(us_df)}"
     )
 
     print(
-        f"Date range: "
+        "Date range: "
         f"{us_df['date'].min().date()} "
-        f"to "
+        "to "
         f"{us_df['date'].max().date()}"
     )
 
@@ -496,7 +617,7 @@ def main():
     )
 
     print(
-        "\n--- CURRENT AND PAST "
+        "\n--- LATEST AND PAST "
         "SEASON TRENDS ---"
     )
 
@@ -526,15 +647,17 @@ def main():
     )
 
     print(
-        "\n--- CURRENT SEASON DETAIL ---"
+        "\n--- LATEST AVAILABLE "
+        "SEASON DETAIL ---"
     )
 
-    for key, value in (
-        current_summary.items()
-    ):
-        print(
-            f"{key}: {value}"
-        )
+    if current_summary is not None:
+        for key, value in (
+            current_summary.items()
+        ):
+            print(
+                f"{key}: {value}"
+            )
 
     comparisons_df = (
         compare_peak_values(
@@ -543,7 +666,7 @@ def main():
     )
 
     print(
-        "\n--- CURRENT PEAK VS "
+        "\n--- LATEST PEAK VS "
         "PAST SEASONS ---"
     )
 

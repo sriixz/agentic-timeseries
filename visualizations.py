@@ -3,6 +3,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from epiweeks import Week
 from tools import (
     prepare_flu_data,
     summarize_cross_season_peak_timing,
@@ -24,10 +25,30 @@ def ensure_plots_dir():
     )
 
 
+def format_epiweek_label(date_value):
+    """
+    Convert a date-like value into a year-aware
+    epidemiological week label.
+    """
+
+    timestamp = pd.Timestamp(
+        date_value
+    )
+
+    epiweek = Week.fromdate(
+        timestamp.date()
+    )
+
+    return (
+        f"{epiweek.year}-EW{epiweek.week:02d}"
+    )
+
+
 def plot_national_weekly_rate():
     """
-    Plot the US national weekly influenza hospitalization rate
-    across the full available dataset.
+    Plot the US national weekly influenza hospitalization
+    rate across the full available dataset using
+    epidemiological week labels.
     """
 
     ensure_plots_dir()
@@ -50,11 +71,45 @@ def plot_national_weekly_rate():
         linewidth=2,
     )
 
+    tick_dates = (
+        national_df["date"]
+        .iloc[::13]
+        .tolist()
+    )
+
+    if (
+        len(national_df) > 0
+        and national_df["date"].iloc[-1]
+        not in tick_dates
+    ):
+        tick_dates.append(
+            national_df["date"].iloc[-1]
+        )
+
+    tick_labels = [
+        format_epiweek_label(
+            date_value
+        )
+        for date_value in tick_dates
+    ]
+
+    ax.set_xticks(
+        tick_dates
+    )
+
+    ax.set_xticklabels(
+        tick_labels,
+        rotation=45,
+        ha="right",
+    )
+
     ax.set_title(
         "US Weekly Influenza Hospitalization Rate"
     )
 
-    ax.set_xlabel("Date")
+    ax.set_xlabel(
+        "Epidemiological week"
+    )
 
     ax.set_ylabel(
         "Weekly hospitalization rate"
@@ -78,7 +133,9 @@ def plot_national_weekly_rate():
         bbox_inches="tight",
     )
 
-    plt.close(fig)
+    plt.close(
+        fig
+    )
 
     return output_path
 
@@ -100,21 +157,34 @@ def plot_cross_season_timing_groups():
     rows = []
 
     for summary in summaries:
-        season_label = summary["season"]
+        season_label = summary[
+            "season"
+        ]
 
-        if summary["is_partial"]:
+        if summary[
+            "is_partial"
+        ]:
             season_label += " *"
 
         rows.append(
             {
-                "season": season_label,
-                "early": summary["early_count"],
-                "typical": summary["typical_count"],
-                "late": summary["late_count"],
+                "season":
+                    season_label,
+
+                "early":
+                    summary["early_count"],
+
+                "typical":
+                    summary["typical_count"],
+
+                "late":
+                    summary["late_count"],
             }
         )
 
-    timing_df = pd.DataFrame(rows)
+    timing_df = pd.DataFrame(
+        rows
+    )
 
     fig, ax = plt.subplots(
         figsize=(11, 6)
@@ -129,7 +199,9 @@ def plot_cross_season_timing_groups():
     ax.bar(
         timing_df["season"],
         timing_df["typical"],
-        bottom=timing_df["early"],
+        bottom=timing_df[
+            "early"
+        ],
         label="Typical",
     )
 
@@ -147,7 +219,9 @@ def plot_cross_season_timing_groups():
         "Jurisdiction Peak Timing by Flu Season"
     )
 
-    ax.set_xlabel("Flu season")
+    ax.set_xlabel(
+        "Flu season"
+    )
 
     ax.set_ylabel(
         "Number of jurisdictions"
@@ -176,18 +250,22 @@ def plot_cross_season_timing_groups():
         bbox_inches="tight",
     )
 
-    plt.close(fig)
+    plt.close(
+        fig
+    )
 
     return output_path
 
 
-def plot_season_peak_timing(season):
+def plot_season_peak_timing(
+    season,
+):
     """
-    Plot each jurisdiction's hospitalization peak date
-    for a selected influenza season.
+    Plot each jurisdiction's hospitalization peak
+    epiweek for a selected influenza season.
 
     A vertical line marks the dominant jurisdictional
-    peak date for the season.
+    peak epiweek for the season.
     """
 
     ensure_plots_dir()
@@ -203,7 +281,9 @@ def plot_season_peak_timing(season):
     selected_summary = None
 
     for summary in timing_summary:
-        if summary["season"] == season:
+        if summary[
+            "season"
+        ] == season:
             selected_summary = summary
             break
 
@@ -222,7 +302,9 @@ def plot_season_peak_timing(season):
         state_peaks
     )
 
-    peak_df["peak_date"] = pd.to_datetime(
+    peak_df[
+        "peak_date"
+    ] = pd.to_datetime(
         peak_df["peak_date"]
     )
 
@@ -243,23 +325,70 @@ def plot_season_peak_timing(season):
         s=35,
     )
 
+    dominant_label = (
+        format_epiweek_label(
+            dominant_peak_date
+        )
+    )
+
     ax.axvline(
         dominant_peak_date,
         linestyle="--",
         linewidth=2,
         label=(
             "Dominant peak: "
-            f"{dominant_peak_date.date()}"
+            f"{dominant_label}"
         ),
+    )
+
+    unique_peak_dates = (
+        peak_df["peak_date"]
+        .drop_duplicates()
+        .sort_values()
+        .tolist()
+    )
+
+    tick_dates = (
+        unique_peak_dates[::2]
+    )
+
+    if (
+        unique_peak_dates
+        and unique_peak_dates[-1]
+        not in tick_dates
+    ):
+        tick_dates.append(
+            unique_peak_dates[-1]
+        )
+
+    tick_labels = [
+        format_epiweek_label(
+            date_value
+        )
+        for date_value in tick_dates
+    ]
+
+    ax.set_xticks(
+        tick_dates
+    )
+
+    ax.set_xticklabels(
+        tick_labels,
+        rotation=45,
+        ha="right",
     )
 
     ax.set_title(
         f"Jurisdiction Peak Timing — {season}"
     )
 
-    ax.set_xlabel("Peak date")
+    ax.set_xlabel(
+        "Peak epidemiological week"
+    )
 
-    ax.set_ylabel("Jurisdiction")
+    ax.set_ylabel(
+        "Jurisdiction"
+    )
 
     ax.grid(
         True,
@@ -268,8 +397,6 @@ def plot_season_peak_timing(season):
     )
 
     ax.legend()
-
-    fig.autofmt_xdate()
 
     fig.tight_layout()
 
@@ -292,7 +419,9 @@ def plot_season_peak_timing(season):
         bbox_inches="tight",
     )
 
-    plt.close(fig)
+    plt.close(
+        fig
+    )
 
     return output_path
 
@@ -326,16 +455,23 @@ def generate_visual_summary(
     )
 
     generated = {
-        "national_weekly_rate": str(
-            national_plot
-        ),
-        "cross_season_timing_groups": str(
-            timing_groups_plot
-        ),
-        "season_peak_timing": str(
-            season_plot
-        ),
-        "selected_season": season,
+        "national_weekly_rate":
+            str(
+                national_plot
+            ),
+
+        "cross_season_timing_groups":
+            str(
+                timing_groups_plot
+            ),
+
+        "season_peak_timing":
+            str(
+                season_plot
+            ),
+
+        "selected_season":
+            season,
     }
 
     print(
