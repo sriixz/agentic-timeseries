@@ -2,54 +2,63 @@
 
 ## Overview
 
-This project is a local research prototype for structured agentic time-series analysis.
+This repository is a local research prototype for structured agentic time-series analysis and forecasting.
 
-It currently includes three major capabilities:
+It currently explores three related workflows:
 
 1. **Financial time-series analysis**
    - GPT acts as a retrieval/planning agent.
-   - Claude acts as a time-series analysis and feedback agent.
-   - Python retrieves real stock-price data through `yfinance`.
+   - Python retrieves stock-price data through `yfinance`.
+   - Claude performs structured time-series analysis.
+   - Claude can request additional historical context for a second analysis pass.
+   - Workflow activity is saved to JSON execution logs.
 
 2. **CDC FluSight hospitalization analysis**
    - GPT selects an analytical scope.
-   - Python performs deterministic preprocessing on influenza hospitalization data.
-   - National trend analysis prioritizes raw hospitalization counts (`value`), while `weekly_rate` is used as a normalized secondary measure.
-   - Claude analyzes seasonal and spatiotemporal patterns.
-   - Deterministic semantic and structural validation can trigger one constrained repair pass when unsupported claims are detected.
-   - The workflow can optionally perform a second-pass analysis using more detailed season-level data.
-   - The workflow generates visual summaries as PNG plots.
+   - Python performs deterministic preprocessing on CDC FluSight hospitalization data.
+   - National trend analysis prioritizes raw hospitalization counts (`value`).
+   - `weekly_rate` is used as a normalized secondary measure.
+   - Claude interprets structured seasonal and jurisdiction-level summaries.
+   - Deterministic semantic and structural validation can trigger one constrained repair pass.
+   - Claude can optionally request detailed information for one season.
+   - Python generates deterministic visual summaries.
 
-3. **NeuralForecast LSTM and AutoLSTM forecasting**
-   - A manually configured Nixtla NeuralForecast `LSTM` provides a fixed-weight baseline.
-   - `AutoLSTM` with the Optuna backend performs automated hyperparameter tuning on pre-test data only.
-   - Both models are evaluated on the same October 2025 through May 2026 held-out period.
-   - Forecasts are evaluated at 1-, 2-, 3-, and 4-week horizons.
-   - The current AutoLSTM experiment substantially improves longer-horizon forecast errors.
+3. **Agentic NeuralForecast LSTM / AutoLSTM forecasting**
+   - A manually configured NeuralForecast `LSTM` provides a fixed-weight baseline.
+   - A GPT configuration agent converts a natural-language forecasting experiment request into structured JSON.
+   - The generated configuration defines the dataset scope, temporal split, forecast horizon, and Optuna search space.
+   - A generic AutoLSTM trainer reads the generated configuration and performs hyperparameter optimization.
+   - The selected LSTM is fitted once on pre-test data and evaluated on the held-out period.
+   - Forecast performance is measured separately at 1-, 2-, 3-, and 4-week horizons.
 
-The prototype is inspired by *Structured Agentic Workflows for Financial Time-Series Modeling with LLMs and Reflective Feedback*.
+The prototype is inspired by:
 
-The goal is not to reproduce the full TS-Agent framework. Instead, this implementation explores several core ideas in a smaller and more understandable system:
+> *Structured Agentic Workflows for Financial Time-Series Modeling with LLMs and Reflective Feedback*
+
+The goal is not to reproduce the complete TS-Agent framework. Instead, the project explores several of its core ideas in a smaller research system:
 
 - specialized agent roles
+- structured LLM outputs
 - external tool use
-- structured agent-to-agent communication
-- iterative feedback
-- stateful workflow execution
 - deterministic preprocessing
-- scope-aware planning
-- visual summaries
-- neural forecasting
+- planner-controlled data flow
+- execution feedback
+- constrained repair
+- configuration generation
 - automated hyperparameter optimization
+- neural forecasting
+- held-out evaluation
+- visual summaries
 - logging and traceability
-- modular architecture
-- automated workflow evaluation
+- modular workflow design
 
 ---
 
 ## Architecture
 
 ![Agentic Time-Series Architecture](images/agentic_timeseries_architecture.png)
+
+The current repository contains three main workflow paths.
 
 ### Financial Workflow
 
@@ -59,11 +68,10 @@ User Task
     v
 GPT Retriever Agent
     |
-    | structured retrieval request
     v
-Financial Data Tool (yfinance)
+Financial Data Tool
+(yfinance)
     |
-    | time-series observations
     v
 Claude Analyst Agent
     |
@@ -74,21 +82,16 @@ Claude Analyst Agent
     +---- Yes
             |
             v
-      Financial Data Tool
+      Expanded Retrieval
             |
             v
-      Expanded Dataset
-            |
-            v
-      Claude Second-Pass Analysis
+      Claude Second Pass
             |
             v
        Final Analysis
-
-All workflow decisions and results are saved to JSON execution logs.
 ```
 
-### FluSight Workflow
+### FluSight Analysis Workflow
 
 ```text
 User Task
@@ -99,7 +102,7 @@ Python Dataset Metadata
     v
 GPT Planner Agent
     |
-    | chooses analysis scope
+    | selects scope
     |
     +---- latest_season
     |
@@ -108,116 +111,178 @@ GPT Planner Agent
     +---- all_seasons
             |
             v
-Python Builds Scope-Specific Summary
+Python Scope-Specific Summary
             |
             v
 Claude FluSight Analyst
             |
-            | needs more detail?
+            v
+Deterministic Validation
             |
-            +---- No ----> Final Analysis
+            | violations?
             |
-            +---- Yes
-                    |
-                    v
-          Python Detailed Season Summary
-                    |
-                    v
-          Claude Second-Pass Analysis
-                    |
-                    v
-               Final Analysis
-                    |
-                    v
-          Python Visual Summary
-                    |
-                    v
-               PNG Plots
+            +---- Yes ---> Constrained Repair
+            |                  |
+            |                  v
+            |             Revalidation
+            |
+            v
+Needs More Detail?
+    |
+    +---- No ----> Final Analysis
+    |
+    +---- Yes
+            |
+            v
+Python Detailed Season Summary
+            |
+            v
+Claude Second-Pass Analysis
+            |
+            v
+Final Analysis + Visual Summary
+```
 
-All workflow decisions, results, and generated plot paths are saved to JSON execution logs.
+### Agentic Forecasting Workflow
+
+```text
+Natural-Language Experiment Request
+                |
+                v
+        GPT Config Agent
+                |
+                v
+Generated AutoLSTM JSON Configuration
+                |
+                v
+      Generic Config Interpreter
+                |
+                v
+         Optuna / AutoLSTM
+                |
+                v
+      Best Hyperparameters
+                |
+                v
+         Fixed LSTM Fit
+                |
+                v
+Held-Out 1-4 Week Evaluation
+                |
+                v
+      Metrics + CSVs + Plots
+```
+
+This separates **experiment specification** from **model execution**:
+
+```text
+Agent decides configuration
+        |
+        v
+Trainer executes configuration
 ```
 
 ---
 
-## Financial Workflow
+# Financial Time-Series Workflow
 
-### 1. User Task
+## 1. User Task
 
-The stock prototype begins with a natural-language request such as:
+The financial prototype begins with a natural-language request such as:
 
 ```text
 Analyze NVIDIA's recent stock-price behavior.
+
 Determine whether the recent movement looks unusual
 and whether more historical context would be useful.
 ```
 
-### 2. Retriever Agent
+## 2. GPT Retriever Agent
 
-The GPT-based Retriever Agent determines:
+The Retriever Agent determines:
 
-- the stock ticker
-- an appropriate initial historical period
-- why that data is needed
+- stock ticker
+- initial historical period
+- reason for requesting that period
 
-Example:
+Example structured output:
 
 ```json
 {
   "symbol": "NVDA",
   "period": "3mo",
-  "reason": "Three months provides enough recent context to assess the current movement."
+  "reason": "Three months provides recent context for evaluating the current movement."
 }
 ```
 
-### 3. Data Retrieval Tool
+## 3. Python Data Retrieval
 
-A Python tool uses `yfinance` to retrieve daily closing-price observations.
+Python uses `yfinance` to retrieve market observations.
 
-The LLM does not generate the financial data itself. Instead:
+The LLM does not generate the financial data itself.
 
-1. the Retriever Agent decides what data is needed
-2. Python executes the retrieval
-3. the resulting time-series data is passed to the Analyst Agent
+```text
+GPT decides what data is needed
+        |
+        v
+Python retrieves observations
+        |
+        v
+Claude analyzes observations
+```
 
-### 4. Analyst Agent
+## 4. Claude Analyst
 
 Claude receives:
 
-- the original user task
-- the Retriever Agent's structured request
-- the retrieved time-series observations
+- the original task
+- the structured retrieval request
+- retrieved time-series data
 
-It returns a structured analysis including:
+The analyst returns structured output describing:
 
 - overall trend
 - unusual movements
-- whether more historical data is required
-- the requested expanded time period
-- the reasoning behind the request
+- whether more historical data is needed
+- requested expanded period
+- reason for the decision
 
-### 5. Feedback Loop
+## 5. Feedback Loop
 
-If Claude determines that the initial dataset is insufficient, the orchestrator automatically performs another retrieval using the longer requested period.
+If additional context is requested:
 
-The expanded dataset is then returned to Claude for a second-pass analysis.
+```text
+Initial data
+    |
+    v
+Claude requests longer history
+    |
+    v
+Python retrieves expanded data
+    |
+    v
+Claude performs second analysis
+```
 
-### 6. Execution Logging
+## 6. Logging
 
-Each workflow run is saved as a timestamped JSON file in the `logs/` directory.
+Financial workflow runs are written as timestamped JSON files under:
+
+```text
+logs/
+```
 
 ---
 
-## CDC FluSight Workflow
+# CDC FluSight Workflow
 
-The FluSight workflow extends the project from a single financial time series to a multi-location epidemiological dataset.
+The FluSight workflow extends the project from a single financial time series to an epidemiological dataset containing observations across U.S. jurisdictions and the national level.
 
 The local data file is expected at:
 
 ```text
 data/target-hospital-admissions.csv
 ```
-
-The dataset contains weekly influenza hospitalization observations across U.S. jurisdictions and the national level.
 
 Expected columns:
 
@@ -229,105 +294,96 @@ value
 weekly_rate
 ```
 
-The `data/` directory is ignored by Git and is not committed to the repository.
-
-### Research Questions
-
-The FluSight workflow is designed to explore questions such as:
-
-- Are influenza hospitalizations seasonal?
-- When does hospitalization activity peak nationally?
-- Do jurisdictions peak at different times?
-- Which jurisdictions peak earlier or later than the dominant seasonal peak?
-- How do these patterns change across seasons?
-- Can the system summarize spatiotemporal variation?
-- Can an agent decide when more detailed season-level context is useful?
+The `data/` directory is ignored by Git.
 
 ---
 
-## Planner-Controlled Scope Selection
+## Research Questions
 
-The GPT planner chooses one of three analytical scopes.
+The FluSight workflow explores questions such as:
 
-### `latest_season`
+- Are influenza hospitalizations seasonal?
+- When does national hospitalization activity peak?
+- How do peak magnitudes differ across seasons?
+- Do jurisdictions peak at different times?
+- Which jurisdictions peak earlier or later than the dominant seasonal peak?
+- How do timing patterns change between seasons?
+- Can an agent determine the appropriate analytical scope?
+- Can deterministic preprocessing reduce unsupported LLM claims?
+- When should the workflow retrieve more detailed seasonal information?
 
-Used when the task focuses on the most recent season.
+---
 
-Python builds:
+# Planner-Controlled Scope Selection
+
+The GPT planner selects one of three scopes.
+
+## `latest_season`
+
+Used when the task focuses on the latest available season.
+
+Python can provide:
 
 ```text
 dataset metadata
 latest season
-detailed latest-season statistics
+latest national trend
+latest-season peak information
+historical context when explicitly supplied
 ```
 
-### `cross_season`
+## `cross_season`
 
-Used when the task asks how patterns change across seasons.
+Used when the task asks how patterns differ across seasons.
 
-Python builds:
+Python can provide:
 
 ```text
 dataset metadata
 national seasonal peaks
-cross-season peak timing summaries
+cross-season timing summaries
+current-vs-past hospitalization comparisons
 ```
 
-### `all_seasons`
+## `all_seasons`
 
-Used when the task explicitly asks for detailed analysis of every season.
+Used when detailed information across every available season is requested.
 
-Python builds:
+Python can provide:
 
 ```text
 dataset metadata
 national seasonal peaks
 detailed summaries for every season
+cross-season timing information
 ```
 
-The planner therefore changes the downstream data flow instead of only describing what it wants.
+The planner therefore changes the downstream data flow rather than merely describing a preferred analysis.
 
 ---
 
-## Deterministic FluSight Preprocessing
+# Deterministic FluSight Preprocessing
 
-The raw FluSight dataset is not sent directly to Claude.
+The raw FluSight dataset is not passed directly to Claude.
 
 Instead, Python computes structured features first.
 
 Examples include:
 
 - national season-level hospitalization-count trends
-- week-over-week hospitalization-count changes
-- latest-available-season peak comparisons with past seasons
-- national seasonal peak dates
+- week-over-week hospitalization changes
+- latest-season peak comparisons
+- national peak dates
 - national peak hospitalization counts
 - national peak weekly rates
-- jurisdiction-level peak dates
-- dominant jurisdictional peak date
-- peak-date distributions
-- early / typical / late timing groups
-- jurisdiction-level peak-rate statistics
+- jurisdiction peak dates
+- dominant jurisdictional peak dates
+- early / typical / late timing classifications
+- jurisdiction peak-rate statistics
 - timing-group rate statistics
-- highest and lowest peak-rate jurisdictions
 - partial-season indicators
 
-For each season, Python can compute:
-
-```text
-peak-date distribution
-dominant peak date
-dominant peak count
-early / typical / late groups
-minimum peak weekly rate
-maximum peak weekly rate
-mean peak weekly rate
-median peak weekly rate
-highest peak-rate jurisdictions
-lowest peak-rate jurisdictions
-```
-
-This creates a separation between deterministic facts and LLM interpretation:
+This separates deterministic facts from language-model interpretation:
 
 ```text
 Python
@@ -341,11 +397,35 @@ Claude
 Structured analysis
 ```
 
+Raw hospitalization counts and normalized rates are intentionally treated differently.
+
+### `value`
+
+Represents weekly hospital admissions.
+
+Used primarily for:
+
+- U.S. national burden
+- national seasonal trends
+- national peak magnitudes
+- week-over-week changes
+- comparisons between national seasonal peaks
+
+### `weekly_rate`
+
+Represents a normalized hospitalization measure.
+
+Used primarily for:
+
+- cross-jurisdiction comparison
+- jurisdiction-level peak-rate summaries
+- normalized timing-group comparisons
+
 ---
 
-## FluSight Timing Definitions
+# FluSight Timing Definitions
 
-Each season uses an August-to-July convention.
+A flu season is represented using an August-to-July convention.
 
 Example:
 
@@ -354,178 +434,153 @@ August 2025 through July 2026
 -> 2025-2026
 ```
 
-Jurisdiction peak timing is classified relative to the dominant jurisdictional peak date for that season.
+Jurisdiction timing is classified relative to the season's dominant jurisdiction peak date.
 
 ```text
 Early:
-more than 7 days before the dominant peak
+more than 7 days before the dominant date
 
 Typical:
-within +/- 7 days of the dominant peak
+within +/- 7 days of the dominant date
 
 Late:
-more than 7 days after the dominant peak
+more than 7 days after the dominant date
 ```
 
-These classifications are relative to each season and are not fixed calendar categories.
+These classifications are season-relative rather than fixed calendar categories.
 
 ---
 
-## FluSight Feedback Loop
+# FluSight Feedback and Repair
 
-Claude can optionally request deeper detail for one season.
+Claude may optionally request deeper detail for one valid season.
 
 ```text
-First Pass
-    |
-    v
-Claude identifies a season that may deserve deeper inspection
-    |
-    v
-Python builds an exact detailed season summary
-    |
-    v
-Claude performs a second-pass analysis
+First-pass analysis
+        |
+        v
+Needs more detail?
+        |
+        +---- No ---> Finish
+        |
+        +---- Yes
+                |
+                v
+      Python detailed season summary
+                |
+                v
+      Claude second-pass analysis
 ```
 
-The second pass is constrained to terminate the refinement loop.
+The second pass terminates the retrieval loop.
 
 ---
 
-## Scope Enforcement
+# Semantic and Structural Validation
 
-The planner's selected scope is enforced in both prompts and Python.
+FluSight analyst output is checked deterministically after generation.
 
-For example, if the planner selects:
-
-```text
-latest_season
-```
-
-Claude may either:
-
-```text
-request more detail for the latest season
-```
-
-or:
-
-```text
-return needs_more_detail = false
-```
-
-It may not request a different historical season.
-
----
-
-## Scientific Interpretation Rules
-
-The FluSight analyst is instructed to separate observed findings from hypotheses requiring additional data.
-
-Potential explanations involving:
-
-- climate
-- demographics
-- population density
-- mobility
-- immunity
-- influenza strain
-- healthcare access
-- reporting behavior
-- public policy
-
-are not treated as established unless those variables are actually available.
-
-Possible explanations are instead placed under:
-
-```json
-{
-  "hypotheses_requiring_external_data": []
-}
-```
-
-### Semantic and Structural Validation
-
-FluSight analyst outputs are checked after generation.
-
-The deterministic validator can flag:
+The validator can flag selected failure modes including:
 
 - unsupported causal or mechanistic wording
 - unsupported geographic generalizations
-- unsupported percentages or ratio-style claims
-- wording that overstates what partial seasons establish
-- selected structural violations such as excessive list lengths
+- unsupported percentages
+- unsupported ratios or fold-change language
+- claims about unobserved portions of partial seasons
+- selected structural violations
+- excessive output lengths
 
-If violations are detected, the workflow performs one constrained Claude repair pass using the authoritative Python-generated data, the original analyst output, and the exact validator violations.
+If violations are detected:
 
-The repaired output is validated again before the workflow continues.
+```text
+Claude output
+    |
+    v
+Deterministic validator
+    |
+    v
+Violations detected
+    |
+    v
+One constrained repair pass
+    |
+    v
+Validator runs again
+```
 
-This layer reduces unsupported claims, but it does not prove that every natural-language statement is correct.
+The repair prompt receives:
+
+- original user task
+- authoritative Python-generated facts
+- original LLM output
+- exact validator violations
+
+This layer reduces known failure modes but does **not** guarantee that every natural-language statement is scientifically correct.
 
 ---
 
-## Visual Summary Generation
+# FluSight Visualizations
 
-The FluSight workflow generates deterministic visual summaries with Matplotlib.
+FluSight visualizations are generated deterministically with Matplotlib.
+
+Date-based plots use epidemiological-week labels generated with the `epiweeks` package.
+
+This aligns the visualizations with epidemiological reporting conventions while preserving chronological ordering across calendar-year boundaries.
 
 Current plots include:
 
 1. **U.S. weekly influenza hospitalization rate**
 2. **U.S. hospitalization counts by flu season**
-3. **Jurisdiction peak timing by flu season**
-4. **Jurisdiction peak dates for a selected season**
+3. **Jurisdiction peak timing groups by season**
+4. **Jurisdiction peak epiweeks for a selected season**
+5. **LSTM / AutoLSTM held-out forecast visualizations**
 
-Representative outputs are stored in:
+Representative plots are stored under:
 
 ```text
 plots/
 ```
 
-The main FluSight workflow automatically generates these plots near the end of a successful run and stores their paths in the JSON execution log.
-
-Example:
-
-```json
-{
-  "visual_summary": {
-    "national_weekly_rate": "plots/national_weekly_hospitalization_rate.png",
-    "cross_season_timing_groups": "plots/cross_season_peak_timing_groups.png",
-    "season_peak_timing": "plots/jurisdiction_peak_timing_2024_2025.png",
-    "selected_season": "2024-2025"
-  }
-}
-```
-
-### Example Visuals
+### National weekly rate
 
 ![US weekly influenza hospitalization rate](plots/national_weekly_hospitalization_rate.png)
 
+### National hospitalization counts by season
+
 ![US hospitalization counts by flu season](plots/us_hospitalization_counts_by_season.png)
 
+### Cross-season jurisdiction timing groups
+
 ![Jurisdiction peak timing by season](plots/cross_season_peak_timing_groups.png)
+
+### Jurisdiction peak epiweeks
 
 ![Jurisdiction peak timing for 2024-2025](plots/jurisdiction_peak_timing_2024_2025.png)
 
 ---
 
-## Standalone FluSight Trend Analysis
+# Standalone FluSight Trend Analysis
 
-The repository includes a deterministic national trend-analysis script:
+The repository includes:
 
 ```text
 flu_trend_analysis.py
 ```
 
-This analysis uses the FluSight `value` column as the primary measure because it represents the actual weekly number of influenza hospital admissions.
+This script performs deterministic national trend analysis using the FluSight `value` column.
 
-The script compares the latest available season in the dataset with recent complete seasons and reports:
+It compares the latest available season in the dataset with recent complete seasons.
 
-- weekly hospital-admission counts
-- season peak counts and dates
-- latest observed value
+Reported quantities include:
+
+- latest hospitalization count
+- previous-week hospitalization count
 - week-over-week change
-- change from the observed seasonal peak
-- peak differences relative to prior seasons
+- week-over-week percentage change
+- observed seasonal peak
+- peak date
+- difference from observed peak
+- comparison with previous seasonal peaks
 
 Representative national peaks:
 
@@ -536,11 +591,7 @@ Representative national peaks:
 | 2024-2025 | complete | 2025-02-08 | 55,718 |
 | 2025-2026 | partial in dataset | 2026-01-03 | 42,626 |
 
-The 2025-2026 season is described as the **latest available season in the dataset**, not necessarily the calendar-current season.
-
-Generated plot:
-
-![US hospitalization counts by flu season](plots/us_hospitalization_counts_by_season.png)
+The 2025-2026 season is described as the **latest available season in the dataset**, rather than assuming it is calendar-current.
 
 Generated CSV summaries are written to:
 
@@ -548,11 +599,11 @@ Generated CSV summaries are written to:
 analysis_results/
 ```
 
-This directory is ignored by Git because the files can be regenerated.
+This directory is ignored by Git because the files are reproducible.
 
 ---
 
-## Evaluation Harness
+# Evaluation Harness
 
 The repository includes:
 
@@ -560,25 +611,25 @@ The repository includes:
 evaluate_flu.py
 ```
 
-The evaluator checks:
+The current evaluator checks workflow-control properties including:
 
 ```text
-Planner scope accuracy
-Feedback scope compliance
-Required output keys
-Output length compliance
-Workflow completion
+planner scope accuracy
+feedback scope compliance
+required output keys
+output length compliance
+workflow completion
 ```
 
-Three representative task types are evaluated:
+Representative task categories include:
 
 ```text
-cross_season
 latest_season
+cross_season
 all_seasons
 ```
 
-A successful evaluation currently produces:
+A previous successful structural evaluation produced:
 
 ```text
 Planner scope accuracy:      3/3
@@ -588,65 +639,60 @@ Output length compliance:    3/3
 Workflow completion:         3/3
 ```
 
+This does not constitute full scientific factual evaluation of every natural-language claim.
+
 ---
 
-## NeuralForecast LSTM Forecasting
+# NeuralForecast LSTM Baseline
 
-The repository also contains a standalone U.S. national influenza forecasting experiment using Nixtla's NeuralForecast package.
-
-File:
+The repository includes a manually configured NeuralForecast LSTM experiment:
 
 ```text
 lstm_forecast.py
 ```
 
-### Forecasting Task
-
-The experiment follows this setup:
+## Forecasting Task
 
 ```text
 Target:
 US national weekly influenza hospitalization rate
 
-Training period:
-2022-02-05 through 2025-09-27
+Training observations:
+through September 2025
 
-Test period:
-2025-10-04 through 2026-05-30
+Held-out evaluation:
+October 2025 through May 2026
 
 Forecast horizons:
 1, 2, 3, and 4 weeks ahead
 ```
 
-The model is fitted once before the test period.
+The model is fitted once before the held-out period.
 
-During evaluation:
+During rolling evaluation:
 
 ```text
 refit=False
 ```
 
-so the learned LSTM parameters remain fixed throughout the held-out test window.
+so the learned network weights are not updated during the test period.
 
-The test period is evaluated with overlapping 4-week forecast windows using a 1-week step.
+Later forecast origins may use observations that would have become available by that point, but the model parameters themselves remain fixed.
 
-### Model
-
-The baseline model uses:
+## Baseline Configuration
 
 ```text
 NeuralForecast LSTM
 forecast horizon: 4 weeks
 input size: 12 weeks
-hidden size: 64
+encoder hidden size: 64
+decoder hidden size: 64
 max training steps: 300
 scaler: standard
 frequency: weekly, Saturday
 ```
 
-### Baseline Results
-
-The fixed-model baseline produced:
+## Baseline Results
 
 | Forecast Horizon | Forecast Count | MAE | RMSE |
 | --- | ---: | ---: | ---: |
@@ -655,164 +701,320 @@ The fixed-model baseline produced:
 | 3 weeks | 32 | 4.0751 | 9.3018 |
 | 4 weeks | 32 | 5.4759 | 12.7107 |
 
-Forecast error increases as lead time increases.
-
-The current baseline captures the broad seasonal rise and decline but substantially overpredicts the 2026 hospitalization peak.
-
-### LSTM Visuals
-
-![Fixed LSTM test forecasts](plots/lstm_fixed_us_forecast_test_period.png)
-
-![LSTM forecast error by horizon](plots/lstm_fixed_metrics_by_horizon.png)
-
-Generated forecast CSV files are written to:
+Generated forecast outputs are written under:
 
 ```text
 forecast_results/
 ```
 
-This directory is ignored by Git because the files can be regenerated from the source data and script.
+Generated plots include:
+
+```text
+plots/lstm_fixed_us_forecast_test_period.png
+plots/lstm_fixed_metrics_by_horizon.png
+```
 
 ---
 
-## AutoLSTM Hyperparameter Optimization
+# Agent-Generated AutoLSTM Configuration
 
-The repository also includes:
+The forecasting workflow now includes an LLM-controlled experiment-configuration stage.
+
+Files:
 
 ```text
+config_agent.py
 autolstm_forecast.py
+run_agentic_lstm.py
 ```
 
-This experiment uses Nixtla's `AutoLSTM` with:
+Configuration artifacts:
 
 ```text
-backend = "optuna"
+configs/autolstm_search_config.json
+configs/generated_autolstm_config.json
 ```
 
-The goal is to compare automated hyperparameter tuning against the manually configured LSTM baseline without changing the forecasting target or held-out test period.
+## Natural-Language Experiment Specification
 
-### Leakage-Controlled Setup
+The config agent accepts an experiment description such as:
 
 ```text
-Target:
-US national weekly influenza hospitalization rate
+Train an LSTM forecasting model using US FluSight
+weekly hospitalization-rate data.
 
-Pre-test data:
-through 2025-09-27
+Use data through September 2025 for training.
 
-Internal validation:
-last 16 weeks of pre-test data
+Use October 2025 through May 2026 as the held-out
+test period.
 
-Held-out test:
-2025-10-04 through 2026-05-30
+Forecast 1 to 4 weeks ahead.
 
-Forecast horizons:
-1, 2, 3, and 4 weeks ahead
+Search observation windows using powers of two.
+
+Search the learning rate logarithmically.
+
+Use five Optuna trials.
 ```
 
-The held-out test period is not used for hyperparameter selection.
+The GPT config agent converts these instructions into structured JSON.
 
-After Optuna selects the best configuration, a standard `LSTM` is instantiated with those hyperparameters, fitted once on pre-test data, and evaluated with:
+---
+
+## Generated Configuration
+
+The generated configuration contains:
 
 ```text
+model
+location
+target
+train_end
+test_start
+test_end
+horizon
+validation_size
+num_samples
+frequency
+search_space
+```
+
+The search space can describe parameters using four generic types:
+
+```text
+fixed
+categorical
+int
+float
+```
+
+Example:
+
+```json
+{
+  "learning_rate": {
+    "type": "float",
+    "low": 0.0001,
+    "high": 0.01,
+    "log": true
+  }
+}
+```
+
+The generic trainer interprets this as the corresponding Optuna operation.
+
+Conceptually:
+
+```text
+JSON specification
+        |
+        v
+trial.suggest_float(...)
+```
+
+The trainer therefore does not need a separately hard-coded Optuna statement for every experiment.
+
+---
+
+## Default Search-Space Behavior
+
+The configuration agent contains explicit defaults.
+
+If a user does not specify a parameter, the agent is instructed to preserve its predefined default rather than inventing a new range.
+
+Examples include:
+
+```text
+context_size:
+[5, 10]
+
+encoder_hidden_size:
+[16, 32, 64]
+
+decoder_hidden_size:
+[16, 32, 64]
+
+batch_size:
+[16, 32]
+
+random_seed:
+1 through 20
+
+scaler:
+standard
+```
+
+Generated configurations are also checked deterministically before being written to disk.
+
+Validation checks include:
+
+- required top-level fields
+- unsupported extra fields
+- required search parameters
+- supported search-space types
+- non-empty categorical values
+- valid low/high ranges
+- invalid simultaneous `log` and `step` settings
+
+---
+
+# AutoLSTM / Optuna Trainer
+
+`autolstm_forecast.py` reads:
+
+```text
+configs/generated_autolstm_config.json
+```
+
+and constructs the Optuna search dynamically.
+
+The current workflow uses:
+
+```text
+NeuralForecast AutoLSTM
+backend = optuna
+```
+
+with a temporal validation window inside pre-test data.
+
+The held-out test period is not used to select hyperparameters.
+
+After Optuna finishes:
+
+```text
+best configuration
+        |
+        v
+standard NeuralForecast LSTM
+        |
+        v
+fit once on pre-test data
+        |
+        v
+rolling held-out evaluation
+        |
+        v
 refit=False
 ```
 
-during the rolling held-out evaluation.
+The current search uses only a small number of Optuna trials as a proof of concept.
 
-### Optuna Search
+Because Optuna samples configurations stochastically, the winning configuration and held-out metrics can differ between runs.
 
-The current proof-of-concept uses 5 Optuna trials.
+The project therefore saves each run's:
 
-The search space includes:
+- Optuna trial table
+- winning configuration
+- validation loss
+- held-out forecasts
+- MAE by horizon
+- RMSE by horizon
+- forecast plots
 
-- input size
-- encoder hidden size
-- encoder layer count
-- context size
-- decoder hidden size
-- learning rate
-- maximum training steps
-- batch size
-- random seed
-
-The input-size search is constrained to values that are feasible for the available time-series history.
-
-### Best AutoLSTM Configuration
-
-The best of the 5 trials produced a validation loss of approximately:
+under:
 
 ```text
-0.079632
+forecast_results/
+plots/
 ```
 
-Selected configuration:
+---
+
+# One-Command Agentic LSTM Workflow
+
+The complete configuration-generation and training workflow can be started with:
+
+```bash
+python run_agentic_lstm.py
+```
+
+This performs:
 
 ```text
-input size: 12
-encoder hidden size: 16
-encoder layers: 3
-context size: 5
-decoder hidden size: 32
-learning rate: 0.0002561682458904924
-max training steps: 300
-batch size: 32
-random seed: 18
-scaler: standard
-forecast horizon: 4
+Natural-language experiment request
+        |
+        v
+GPT configuration generation
+        |
+        v
+Deterministic config validation
+        |
+        v
+generated_autolstm_config.json
+        |
+        v
+AutoLSTM / Optuna tuning
+        |
+        v
+winning LSTM configuration
+        |
+        v
+fixed-weight held-out evaluation
 ```
 
-### AutoLSTM Test Results
+This is currently the closest part of the repository to the TS-Agent idea of an LLM orchestrating a conventional forecasting model rather than acting as the forecaster itself.
 
-| Forecast Horizon | Forecast Count | MAE | RMSE |
-| --- | ---: | ---: | ---: |
-| 1 week | 32 | 2.3543 | 4.8874 |
-| 2 weeks | 32 | 2.8447 | 5.3464 |
-| 3 weeks | 32 | 3.0911 | 5.4975 |
-| 4 weeks | 32 | 3.2461 | 5.3584 |
+---
 
-AutoLSTM is not uniformly better than the manual baseline. It performs worse at the 1-week horizon, is nearly tied on 2-week MAE while improving 2-week RMSE, and improves substantially at 3- and 4-week horizons.
+# Manual LSTM vs AutoLSTM
 
-### Manual LSTM vs AutoLSTM
-
-The comparison script:
+The repository also includes:
 
 ```text
 compare_lstm_models.py
 ```
 
-loads the saved metrics from both forecasting experiments and computes the percent error reduction from the manual LSTM to AutoLSTM.
+The script compares saved manual-LSTM and AutoLSTM results by forecast horizon.
 
-| Horizon | Manual MAE | AutoLSTM MAE | MAE Improvement | Manual RMSE | AutoLSTM RMSE | RMSE Improvement |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 week | 2.0027 | 2.3543 | -17.55% | 4.2232 | 4.8874 | -15.73% |
-| 2 weeks | 2.8343 | 2.8447 | -0.37% | 6.3357 | 5.3464 | 15.61% |
-| 3 weeks | 4.0751 | 3.0911 | 24.15% | 9.3018 | 5.4975 | 40.90% |
-| 4 weeks | 5.4759 | 3.2461 | 40.72% | 12.7107 | 5.3584 | 57.84% |
-
-A positive improvement means AutoLSTM reduced forecast error. A negative value means the manual baseline performed better.
-
-### AutoLSTM and Comparison Visuals
-
-![AutoLSTM fixed-weight test forecasts](plots/autolstm_fixed_us_forecast_test_period.png)
-
-![AutoLSTM forecast error by horizon](plots/autolstm_fixed_metrics_by_horizon.png)
-
-![Manual LSTM vs AutoLSTM MAE](plots/lstm_vs_autolstm_mae.png)
-
-![Manual LSTM vs AutoLSTM RMSE](plots/lstm_vs_autolstm_rmse.png)
-
-Generated AutoLSTM CSV outputs are written to:
+It calculates:
 
 ```text
-forecast_results/
+MAE
+RMSE
+percent MAE improvement
+percent RMSE improvement
 ```
 
-and remain ignored by Git.
+and generates:
+
+```text
+plots/lstm_vs_autolstm_mae.png
+plots/lstm_vs_autolstm_rmse.png
+```
+
+Because the current AutoLSTM workflow can generate different winning configurations across Optuna runs, comparison results should be interpreted as results for the saved run rather than as a universal AutoLSTM performance claim.
 
 ---
 
-## Project Structure
+# Prompt / Code Generation Log
+
+The repository includes:
+
+```text
+PROMPT_LOG.md
+```
+
+This file documents reconstructed summaries of the main prompts and development instructions used to generate and refine project files.
+
+These are **not verbatim conversation transcripts**.
+
+The purpose of the log is to improve transparency around:
+
+- development-time LLM assistance
+- requested code behavior
+- architectural changes
+- debugging and refinement instructions
+
+The repository distinguishes between:
+
+1. **development-time LLM assistance**
+2. **runtime LLM agents used by the application**
+
+Deterministic numerical calculations, model fitting, evaluation, preprocessing, and plotting are executed by Python.
+
+---
+
+# Project Structure
 
 ```text
 agentic-timeseries/
@@ -821,29 +1023,40 @@ agentic-timeseries/
 ├── tools.py
 ├── logger.py
 ├── visualizations.py
-├── flu_trend_analysis.py
-├── lstm_forecast.py
-├── autolstm_forecast.py
-├── compare_lstm_models.py
 |
 ├── main.py
 ├── main_nvda.py
 ├── main_flu.py
 |
+├── flu_trend_analysis.py
+|
+├── lstm_forecast.py
+├── autolstm_forecast.py
+├── config_agent.py
+├── run_agentic_lstm.py
+├── compare_lstm_models.py
+|
 ├── test_flu.py
 ├── test_flu_scopes.py
 ├── evaluate_flu.py
 |
+├── configs/
+│   ├── autolstm_search_config.json
+│   └── generated_autolstm_config.json
+|
+├── images/
+│   └── agentic_timeseries_architecture.png
+|
 ├── data/
 │   └── target-hospital-admissions.csv
 |
-├── diagrams/
 ├── plots/
 ├── logs/
 ├── analysis_results/
 ├── forecast_results/
 ├── lightning_logs/
 |
+├── PROMPT_LOG.md
 ├── requirements.txt
 ├── README.md
 ├── .gitignore
@@ -851,36 +1064,15 @@ agentic-timeseries/
 └── .venv/
 ```
 
-### `main.py`
+---
 
-Runs the Apple stock workflow.
+# Important Files
 
-### `main_nvda.py`
+## `agents.py`
 
-Runs the NVIDIA stock workflow.
+Contains runtime LLM agents.
 
-### `main_flu.py`
-
-Runs the full FluSight agentic workflow:
-
-```text
-metadata
--> planner
--> scope-specific Python summary
--> first-pass analyst
--> semantic + structural validation
--> optional constrained repair
--> optional detailed retrieval
--> optional second-pass analyst
--> visual summary
--> log
-```
-
-### `agents.py`
-
-Contains the LLM-based agents.
-
-Financial workflow:
+Financial workflow functions include:
 
 ```text
 run_retriever_agent()
@@ -888,7 +1080,7 @@ run_analyst_agent()
 run_second_pass_analyst()
 ```
 
-FluSight workflow:
+FluSight workflow functions include:
 
 ```text
 run_flu_planner_agent()
@@ -896,45 +1088,84 @@ run_flu_analyst_agent()
 run_flu_second_pass_analyst()
 ```
 
-### `tools.py`
+The FluSight analyst path also includes deterministic semantic and structural validation.
 
-Contains deterministic financial and epidemiological data tools.
+---
 
-### `visualizations.py`
+## `tools.py`
 
-Generates the FluSight visual summary plots.
+Contains deterministic financial and FluSight preprocessing utilities.
 
-### `flu_trend_analysis.py`
+---
 
-Runs deterministic national FluSight hospitalization-count trend analysis and generates season-comparison summaries and plots.
+## `visualizations.py`
 
-### `lstm_forecast.py`
+Generates FluSight visual-summary plots.
 
-Runs the manually configured fixed-model NeuralForecast LSTM experiment and generates forecast metrics and plots.
+Date-based plots use `epiweeks` to display epidemiological week labels.
 
-### `autolstm_forecast.py`
+---
 
-Runs Optuna-backed NeuralForecast AutoLSTM hyperparameter tuning, fits the selected LSTM configuration, and evaluates it on the same held-out test period as the manual baseline.
+## `flu_trend_analysis.py`
 
-### `compare_lstm_models.py`
+Runs deterministic national hospitalization-count trend analysis.
 
-Compares manual LSTM and AutoLSTM MAE/RMSE by forecast horizon and generates direct comparison plots.
+---
 
-### `logger.py`
+## `lstm_forecast.py`
 
-Saves timestamped JSON execution traces to `logs/`.
+Runs the manually configured fixed-weight LSTM baseline.
 
-### `test_flu.py`
+---
 
-Tests deterministic FluSight preprocessing without calling the LLM agents.
+## `config_agent.py`
 
-### `test_flu_scopes.py`
+Uses GPT to convert a natural-language experiment specification into a validated AutoLSTM JSON configuration.
 
-Tests whether different user tasks produce different planner scopes.
+---
 
-### `evaluate_flu.py`
+## `autolstm_forecast.py`
 
-Runs structured evaluation checks across representative FluSight tasks.
+Reads the generated configuration, dynamically constructs the Optuna search space, performs AutoLSTM tuning, fits the selected LSTM, evaluates the held-out period, and generates forecast outputs.
+
+---
+
+## `run_agentic_lstm.py`
+
+Orchestrates:
+
+```text
+prompt
+-> config agent
+-> generated config
+-> AutoLSTM trainer
+-> evaluation
+```
+
+---
+
+## `compare_lstm_models.py`
+
+Compares manual LSTM and AutoLSTM metrics by forecast horizon.
+
+---
+
+## `main_flu.py`
+
+Runs the FluSight analysis workflow:
+
+```text
+metadata
+-> planner
+-> scope-specific deterministic summary
+-> first-pass Claude analysis
+-> validation
+-> optional constrained repair
+-> optional detailed retrieval
+-> optional second pass
+-> visual summary
+-> log
+```
 
 ---
 
@@ -946,6 +1177,8 @@ Runs structured evaluation checks across representative FluSight tasks.
 git clone https://github.com/sriixz/agentic-timeseries.git
 cd agentic-timeseries
 ```
+
+---
 
 ## 2. Create a Virtual Environment
 
@@ -972,21 +1205,28 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 source .venv/bin/activate
 ```
 
+---
+
 ## 3. Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-This installs the packages required for:
+Major dependencies include:
 
-- OpenAI API access
-- Anthropic API access
+- OpenAI Python SDK
+- Anthropic Python SDK
+- `python-dotenv`
 - `yfinance`
 - pandas
 - Matplotlib
+- `epiweeks`
 - NeuralForecast
+- Optuna
 - PyTorch / PyTorch Lightning dependencies
+
+---
 
 ## 4. Add API Keys
 
@@ -997,9 +1237,9 @@ OPENAI_API_KEY=your_openai_api_key
 ANTHROPIC_API_KEY=your_anthropic_api_key
 ```
 
-API keys should never be committed to version control.
+Never commit API keys to version control.
 
-> **Note:** The current agentic workflow uses both OpenAI and Anthropic. A future improvement is to make the model provider configurable so the system can run with a single provider/API key if desired.
+---
 
 ## 5. Add the FluSight Dataset
 
@@ -1009,7 +1249,7 @@ Create:
 data/
 ```
 
-Place the FluSight hospitalization target file at:
+Place the hospitalization target data at:
 
 ```text
 data/target-hospital-admissions.csv
@@ -1027,320 +1267,263 @@ weekly_rate
 
 The `data/` directory is ignored by Git.
 
-CDC FluSight forecast hub:
+CDC FluSight Forecast Hub:
 
 https://github.com/cdcepi/FluSight-forecast-hub
 
-## 6. Run the Financial Demos
+---
 
-Apple:
+# Running the Workflows
+
+## Financial Demo — Apple
 
 ```bash
 python main.py
 ```
 
-NVIDIA:
+## Financial Demo — NVIDIA
 
 ```bash
 python main_nvda.py
 ```
 
-## 7. Run the FluSight Agentic Workflow
+## FluSight Agentic Analysis
 
 ```bash
 python main_flu.py
 ```
 
-A successful run performs:
-
-```text
-dataset metadata
--> GPT planning
--> scope-specific deterministic preprocessing
--> Claude analysis
--> optional detailed-season feedback
--> optional second-pass analysis
--> visual summary generation
--> JSON logging
-```
-
-Generated plots are saved in:
-
-```text
-plots/
-```
-
-Execution logs are saved in:
-
-```text
-logs/
-```
-
-## 8. Run the Standalone FluSight Trend Analysis
+## Standalone FluSight Trend Analysis
 
 ```bash
 python flu_trend_analysis.py
 ```
 
-This generates the count-based national season comparison and writes regenerated CSV summaries to `analysis_results/`.
-
-## 9. Run the FluSight Tests
-
-Deterministic preprocessing:
-
-```bash
-python test_flu.py
-```
-
-Planner scope behavior:
-
-```bash
-python test_flu_scopes.py
-```
-
-Evaluation harness:
-
-```bash
-python evaluate_flu.py
-```
-
-## 10. Generate the Visual Summary Directly
+## FluSight Visualizations
 
 ```bash
 python visualizations.py
 ```
 
-This generates the current FluSight plots in:
+## FluSight Deterministic Tests
 
-```text
-plots/
+```bash
+python test_flu.py
 ```
 
-## 11. Run the NeuralForecast LSTM Experiment
+## Planner Scope Tests
+
+```bash
+python test_flu_scopes.py
+```
+
+## FluSight Evaluation Harness
+
+```bash
+python evaluate_flu.py
+```
+
+## Manual LSTM Baseline
 
 ```bash
 python lstm_forecast.py
 ```
 
-The experiment:
+## Generate AutoLSTM Config Only
 
-```text
-trains on:
-2022 through September 2025
-
-tests on:
-October 2025 through May 2026
-
-produces:
-1-4 week ahead forecasts
-MAE and RMSE by forecast horizon
-forecast visualization
-error-by-horizon visualization
+```bash
+python config_agent.py
 ```
 
-Generated CSV forecast results are saved in:
+Generated configuration:
 
 ```text
-forecast_results/
+configs/generated_autolstm_config.json
 ```
 
-Generated plots are saved in:
-
-```text
-plots/
-```
-
----
-
-## 12. Run the AutoLSTM Optuna Experiment
+## Run AutoLSTM Using Generated Config
 
 ```bash
 python autolstm_forecast.py
 ```
 
-The current proof-of-concept performs 5 Optuna trials on pre-test data, selects the best configuration using temporal validation, fits that configuration once, and evaluates it on the same held-out test window as the manual LSTM.
+## Run Complete Agentic Forecast Workflow
 
-Generated CSV outputs are saved in:
-
-```text
-forecast_results/
+```bash
+python run_agentic_lstm.py
 ```
 
-Generated plots are saved in:
-
-```text
-plots/
-```
-
-## 13. Compare Manual LSTM and AutoLSTM
+## Compare Manual LSTM and AutoLSTM
 
 ```bash
 python compare_lstm_models.py
 ```
 
-This produces:
-
-```text
-forecast_results/lstm_vs_autolstm_comparison.csv
-plots/lstm_vs_autolstm_mae.png
-plots/lstm_vs_autolstm_rmse.png
-```
-
 ---
 
-## Models
+# Current Model Roles
 
-Current agent model assignments:
+## LLM Agents
 
 ```text
-Planner / Retriever:
+Planner / Retriever / Config Generation:
 OpenAI GPT-5.4-mini
 
-Analyst:
+Analysis / Repair:
 Anthropic Claude Sonnet 4.5
 ```
 
-Forecasting models:
+## Forecasting Models
 
 ```text
 Nixtla NeuralForecast LSTM
-Nixtla NeuralForecast AutoLSTM with Optuna
+Nixtla NeuralForecast AutoLSTM
+Optuna hyperparameter optimization
 ```
 
-Python handles deterministic retrieval, preprocessing, statistical summaries, visualization, and forecast evaluation.
+Python remains responsible for:
+
+- data retrieval
+- preprocessing
+- deterministic feature construction
+- validation
+- plotting
+- model fitting
+- forecasting
+- metric calculation
 
 ---
 
-## Logging
+# Relationship to TS-Agent
 
-Workflow runs are saved as timestamped JSON files.
-
-Example:
-
-```text
-logs/run_2026-09-02_23-28-50.json
-```
-
-Logs can include:
-
-- user task
-- planner decision
-- selected scope
-- first-pass analysis
-- feedback decision
-- requested season
-- detailed retrieval
-- final analysis
-- visual summary paths
-- errors
-
----
-
-## Relationship to TS-Agent
-
-The prototype implements a simplified subset of ideas from TS-Agent.
+The prototype currently implements a simplified subset of TS-Agent ideas.
 
 | TS-Agent concept | Current prototype |
 | --- | --- |
-| Structured workflow | Local Python orchestrator |
-| Planner/model-selection logic | GPT planner/retriever |
-| External resources | `yfinance` and FluSight data |
-| Execution feedback | Claude can request additional detail |
-| Iterative refinement | Optional second-pass analysis |
-| Memory/context | Workflow state passed between stages |
-| Auditability | JSON execution logs |
-| Modular architecture | Separate agents, tools, visualization, forecasting, logging, and orchestration |
-| Hyperparameter optimization | AutoLSTM with Optuna on pre-test validation data |
+| Structured workflow | Python orchestration |
+| Specialized agents | GPT planning/configuration and Claude analysis |
+| External data/tools | `yfinance`, FluSight, Python preprocessing |
+| Structured communication | JSON agent outputs and configuration files |
+| Execution feedback | Claude detail requests, validation/repair, model metrics |
+| Iterative analysis | Optional second-pass FluSight analysis |
+| Hyperparameter tuning | AutoLSTM with Optuna |
+| Agent-directed model setup | GPT-generated AutoLSTM search configuration |
+| Deterministic execution | Python / NeuralForecast |
+| Auditability | JSON logs, saved configs, CSV results, plots, prompt log |
+| Modular architecture | Separate agents, tools, forecasting, visualization, and orchestration |
 
-Several major TS-Agent components are not implemented, including:
+Important TS-Agent components that are **not yet implemented** include:
 
 - Case Bank
-- Financial Time-Series Code Base
+- dedicated time-series model Code Base abstraction
 - Refinement Knowledge Bank
-- automated forecasting-model selection across multiple model families
-- automated code refinement
-- agent-directed execution-based model training
-- multiple iterative refinement cycles
+- forecasting-model selection across multiple model families
+- automated training-code modification
+- execution-based accept/revert code refinement
+- repeated multi-cycle model refinement
+- persistent long-term agent memory
+
+The current config-agent workflow is therefore a limited but concrete step toward agent-directed forecasting execution.
 
 ---
 
-## Current Limitations
+# Current Limitations
 
-This is still a research prototype.
+This remains a research prototype.
 
 Current limitations include:
 
-- the agentic workflow currently depends on cloud-hosted LLM APIs
-- the current implementation requires both OpenAI and Anthropic credentials
-- only one optional agentic refinement pass is supported
-- the semantic validator reduces unsupported claims but does not prove that every natural-language statement is correct
-- AutoLSTM currently tunes only the LSTM family rather than selecting among multiple forecasting architectures
-- the current AutoLSTM result is based on a small 5-trial proof-of-concept search
-- no long-term agent memory
-- no vector database
-- no formal causal inference
-- no sub-state epidemiological analysis
-- workflow evaluation currently focuses more on control behavior than complete scientific correctness
-- AutoLSTM improves longer horizons in the current experiment but performs worse than the manual LSTM at the 1-week horizon
+- runtime agents depend on cloud-hosted LLM APIs
+- the broader analysis workflow currently uses both OpenAI and Anthropic
+- only one optional FluSight repair pass is supported
+- semantic validation targets selected failure modes rather than complete factual verification
+- AutoLSTM currently tunes only the LSTM family
+- the current Optuna search uses a small number of trials
+- winning AutoLSTM configurations may vary between runs
+- `context_size` is deprecated by the current NeuralForecast LSTM implementation
+- `inference_input_size=-1` may be automatically adjusted by NeuralForecast
+- there is no persistent long-term agent memory
+- there is no vector database
+- there is no causal inference layer
+- forecasting remains national rather than sub-state
+- model selection across architectures is not yet agent-controlled
+- probabilistic FluSight forecasting is not yet implemented
+- Weighted Interval Score is not yet evaluated
+- ensembles are not yet implemented
 - financial outputs are workflow demonstrations, not investment advice
 
 ---
 
-## Research Direction
+# Research Direction
 
-The current implementation is a starting point for studying structured multi-agent workflows for time-series analysis.
+The broader research question is:
 
-Research questions include:
+> Can LLM agents serve as reliable orchestration components inside structured scientific time-series workflows rather than acting as standalone predictors?
 
-- Does specialization between LLM agents improve performance?
-- Do heterogeneous model combinations behave differently from single-model systems?
-- When does reflective feedback improve time-series analysis?
-- How should agents decide when additional data is necessary?
+Current questions include:
+
+- Does specialization between agents improve workflow reliability?
 - Can deterministic preprocessing reduce unsupported numerical claims?
-- How often do LLM interpretations remain faithful to Python-generated facts?
-- How should scientific workflows separate observed evidence from hypotheses?
-- Does planner-controlled data selection improve efficiency or reliability?
-- How should forecasting models be incorporated into agentic workflows?
-- Can an agent select or critique a forecasting model based on observed performance?
+- How faithfully do LLM analyses use Python-generated facts?
+- When should an agent request more data?
+- How should model configuration be represented for agent control?
+- Can an LLM generate useful model-search spaces from experiment descriptions?
+- Can model execution feedback guide future agent decisions?
+- Should model choice depend on forecast horizon?
+- Should model choice depend on epidemic phase?
+- Can model disagreement provide useful uncertainty information?
+- When should several forecasting models be ensembled rather than selecting a single winner?
+- How should probabilistic forecasting be incorporated into the agentic workflow?
 
 ---
 
-## Possible Next Steps
+# Possible Next Steps
 
 Possible extensions include:
 
-- repeated evaluation across many prompts
-- comparing GPT -> Claude against GPT -> GPT
-- comparing Claude -> Claude against mixed-model workflows
-- automatically validating LLM statements against Python-generated facts
-- supporting a single configurable LLM provider
-- adding geographic metadata
-- adding epidemic duration and curve-shape features
-- comparing multiple forecasting architectures and automated model-selection strategies
-- expanding the AutoLSTM Optuna search beyond the current 5-trial proof of concept
-- comparing LSTM with NHITS, NBEATS, or statistical baselines
-- adding prediction intervals
-- adding nonnegative forecast constraints or transformations
-- testing whether feedback materially changes conclusions
-- allowing an agent to invoke forecasting models
-- testing additional epidemiological, environmental, or economic datasets
+- increase the number of Optuna trials
+- remove deprecated LSTM configuration fields
+- compare multiple forecasting architectures
+- add NHITS
+- add NBEATS
+- add statistical forecasting baselines
+- let the agent choose among model families
+- build a model-performance memory or Case Bank
+- evaluate models by epidemic phase
+- evaluate models separately by forecast horizon
+- add prediction intervals
+- add probabilistic forecasts
+- calculate Weighted Interval Score
+- compare mean and median ensembles
+- implement weighted ensembles
+- use disagreement between models as an uncertainty feature
+- add execution-based refinement cycles
+- allow the agent to keep or revert model/pipeline changes based on validation performance
+- expand evaluation across more prompts and tasks
+- compare different LLM-agent combinations
+- improve automated factual validation
+- test additional epidemiological, environmental, and economic datasets
 
 ---
 
-## Research Motivation
+# Research Motivation
 
-The broader motivation is to understand how LLM agents can operate as components of a structured scientific workflow rather than as standalone text generators.
+The long-term goal is to study a system in which different components have clearly separated responsibilities.
 
 ```text
 Python
 -> deterministic numerical layer
+-> data processing
+-> validation
 -> visualization
 -> forecasting
+-> evaluation
 
 LLMs
 -> planning
+-> configuration
 -> interpretation
 -> feedback
 ```
 
-The long-term question is whether this combination can produce time-series analysis that is more adaptive, transparent, and reliable than a single unconstrained model call.
+The central question is whether combining deterministic computation, conventional forecasting models, and structured LLM agents can produce time-series workflows that are more adaptive, transparent, and reliable than a single unconstrained model call.
