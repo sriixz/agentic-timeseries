@@ -1,0 +1,12 @@
+{
+  "model": "LSTM",
+  "location": "US",
+  "target": "weekly_rate",
+  "train_end": "2025-09-30",
+  "test_start": "2025-10-01",
+  "test_end": "2026-05-31",
+  "horizon": 4,
+  "validation_size": 16,
+  "num_samples": 5,
+  "frequency": "W-SAT"
+}
