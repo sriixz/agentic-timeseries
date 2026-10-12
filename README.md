@@ -22,14 +22,17 @@ It currently explores three related workflows:
    - Deterministic semantic and structural validation can trigger one constrained repair pass.
    - Claude can optionally request detailed information for one season.
    - Python generates deterministic visual summaries.
+   - State-level choropleth maps compare hospitalization peak timing across influenza seasons.
 
 3. **Agentic NeuralForecast LSTM / AutoLSTM forecasting**
    - A manually configured NeuralForecast `LSTM` provides a fixed-weight baseline.
-   - A GPT configuration agent converts a natural-language forecasting experiment request into structured JSON.
-   - The generated configuration defines the dataset scope, temporal split, forecast horizon, and Optuna search space.
-   - A generic AutoLSTM trainer reads the generated configuration and performs hyperparameter optimization.
-   - The selected LSTM is fitted once on pre-test data and evaluated on the held-out period.
-   - Forecast performance is measured separately at 1-, 2-, 3-, and 4-week horizons.
+   - A GPT configuration agent converts a natural-language experiment request into a structured experiment and search-space specification.
+   - The structured output is validated deterministically.
+   - Python renders the validated search specification into an Optuna config callable.
+   - NeuralForecast `AutoLSTM` consumes the generated callable directly.
+   - Optuna performs hyperparameter optimization on pre-test data.
+   - The winning configuration is reconstructed and used to fit a fixed LSTM.
+   - Forecast performance is evaluated separately at 1-, 2-, 3-, and 4-week horizons.
 
 The prototype is inspired by:
 
@@ -45,10 +48,11 @@ The goal is not to reproduce the complete TS-Agent framework. Instead, the proje
 - execution feedback
 - constrained repair
 - configuration generation
+- deterministic configuration validation
 - automated hyperparameter optimization
 - neural forecasting
 - held-out evaluation
-- visual summaries
+- epidemiological visualization
 - logging and traceability
 - modular workflow design
 
@@ -143,6 +147,8 @@ Claude Second-Pass Analysis
 Final Analysis + Visual Summary
 ```
 
+The FluSight analysis layer also includes deterministic visualization workflows for national trends, jurisdiction timing, and state-level peak-epiweek maps.
+
 ### Agentic Forecasting Workflow
 
 ```text
@@ -152,19 +158,25 @@ Natural-Language Experiment Request
         GPT Config Agent
                 |
                 v
-Generated AutoLSTM JSON Configuration
+   Structured Experiment Specification
                 |
                 v
-      Generic Config Interpreter
+      Deterministic Validation
                 |
                 v
-         Optuna / AutoLSTM
+Generated AutoLSTM Optuna Callable
                 |
                 v
-      Best Hyperparameters
+         AutoLSTM / Optuna
                 |
                 v
-         Fixed LSTM Fit
+         Winning Trial
+                |
+                v
+    Reconstructed LSTM Config
+                |
+                v
+          Fixed LSTM Fit
                 |
                 v
 Held-Out 1-4 Week Evaluation
@@ -176,11 +188,16 @@ Held-Out 1-4 Week Evaluation
 This separates **experiment specification** from **model execution**:
 
 ```text
-Agent decides configuration
+Agent specifies experiment
         |
         v
-Trainer executes configuration
+Python validates and renders config
+        |
+        v
+AutoLSTM executes experiment
 ```
+
+The LLM is therefore used as an orchestrator rather than as the forecasting model itself.
 
 ---
 
@@ -308,6 +325,7 @@ The FluSight workflow explores questions such as:
 - Do jurisdictions peak at different times?
 - Which jurisdictions peak earlier or later than the dominant seasonal peak?
 - How do timing patterns change between seasons?
+- Are geographic peak-timing patterns consistent across seasons?
 - Can an agent determine the appropriate analytical scope?
 - Can deterministic preprocessing reduce unsupported LLM claims?
 - When should the workflow retrieve more detailed seasonal information?
@@ -381,6 +399,7 @@ Examples include:
 - early / typical / late timing classifications
 - jurisdiction peak-rate statistics
 - timing-group rate statistics
+- state-level peak epiweeks
 - partial-season indicators
 
 This separates deterministic facts from language-model interpretation:
@@ -420,6 +439,7 @@ Used primarily for:
 - cross-jurisdiction comparison
 - jurisdiction-level peak-rate summaries
 - normalized timing-group comparisons
+- state-level peak-timing maps
 
 ---
 
@@ -521,19 +541,24 @@ This layer reduces known failure modes but does **not** guarantee that every nat
 
 # FluSight Visualizations
 
-FluSight visualizations are generated deterministically with Matplotlib.
+FluSight visualizations are generated deterministically with Python.
+
+Most analytical plots use Matplotlib.
+
+State-level geographic peak-timing maps use Plotly.
 
 Date-based plots use epidemiological-week labels generated with the `epiweeks` package.
 
 This aligns the visualizations with epidemiological reporting conventions while preserving chronological ordering across calendar-year boundaries.
 
-Current plots include:
+Current visualizations include:
 
 1. **U.S. weekly influenza hospitalization rate**
 2. **U.S. hospitalization counts by flu season**
 3. **Jurisdiction peak timing groups by season**
 4. **Jurisdiction peak epiweeks for a selected season**
-5. **LSTM / AutoLSTM held-out forecast visualizations**
+5. **State peak-epiweek choropleths across seasons**
+6. **LSTM / AutoLSTM held-out forecast visualizations**
 
 Representative plots are stored under:
 
@@ -556,6 +581,102 @@ plots/
 ### Jurisdiction peak epiweeks
 
 ![Jurisdiction peak timing for 2024-2025](plots/jurisdiction_peak_timing_2024_2025.png)
+
+---
+
+# State Peak Epiweek Choropleths
+
+The repository includes:
+
+```text
+flu_peak_choropleth.py
+```
+
+This script creates state-level maps of influenza hospitalization peak timing.
+
+For each season:
+
+```text
+state weekly hospitalization-rate observations
+        |
+        v
+identify each state's seasonal peak
+        |
+        v
+convert peak date to epidemiological week
+        |
+        v
+assign continuous seasonal epiweek position
+        |
+        v
+U.S. state choropleth
+```
+
+The maps currently cover:
+
+```text
+2022-2023
+2023-2024
+2024-2025
+2025-2026
+```
+
+For each state and season, the script identifies the date with the maximum `weekly_rate`.
+
+The peak date is converted to an epidemiological week using `epiweeks`.
+
+## Shared Color Scale
+
+All maps use the same peak-timing color scale.
+
+This is important because a given color represents the same approximate epidemic timing across every season.
+
+The scale also preserves chronological ordering across the calendar-year boundary.
+
+Conceptually:
+
+```text
+EW45
+...
+EW49
+EW52
+EW01
+EW05
+EW09
+EW12
+```
+
+This avoids treating EW01 as if it occurred before the late-year epiweeks in the same influenza season.
+
+## 2022-2023
+
+![State peak epiweek 2022-2023](plots/state_peak_epiweek_2022_2023.png)
+
+## 2023-2024
+
+![State peak epiweek 2023-2024](plots/state_peak_epiweek_2023_2024.png)
+
+## 2024-2025
+
+![State peak epiweek 2024-2025](plots/state_peak_epiweek_2024_2025.png)
+
+## 2025-2026
+
+![State peak epiweek 2025-2026](plots/state_peak_epiweek_2025_2026.png)
+
+The 2025-2026 map reflects the latest observations available in the local dataset and therefore represents a partial season.
+
+The script also generates interactive Plotly HTML maps locally.
+
+These HTML files are reproducible outputs and are ignored by Git.
+
+A state-level peak table is written to:
+
+```text
+analysis_results/state_peak_epiweeks_by_season.csv
+```
+
+The maps provide an exploratory view of whether geographic influenza peak-timing patterns remain consistent or shift between seasons.
 
 ---
 
@@ -718,7 +839,7 @@ plots/lstm_fixed_metrics_by_horizon.png
 
 # Agent-Generated AutoLSTM Configuration
 
-The forecasting workflow now includes an LLM-controlled experiment-configuration stage.
+The forecasting workflow includes an LLM-controlled experiment-configuration stage.
 
 Files:
 
@@ -728,42 +849,138 @@ autolstm_forecast.py
 run_agentic_lstm.py
 ```
 
-Configuration artifacts:
+Current generated configuration artifacts:
+
+```text
+configs/generated_autolstm_config.py
+configs/generated_autolstm_experiment.json
+```
+
+Earlier JSON configuration artifacts are retained in the repository as development/reference artifacts:
 
 ```text
 configs/autolstm_search_config.json
 configs/generated_autolstm_config.json
 ```
 
+The current trainer does **not** depend on the old generic JSON interpreter workflow.
+
+---
+
 ## Natural-Language Experiment Specification
 
 The config agent accepts an experiment description such as:
 
 ```text
-Train an LSTM forecasting model using US FluSight
-weekly hospitalization-rate data.
+Use US FluSight weekly hospitalization-rate data.
 
-Use data through September 2025 for training.
+Train through September 2025.
 
 Use October 2025 through May 2026 as the held-out
 test period.
 
-Forecast 1 to 4 weeks ahead.
+Forecast 1 through 4 weeks ahead.
 
-Search observation windows using powers of two.
+For the observation window, sweep powers of two:
+8, 16, 32, 64, and 128 weeks.
 
 Search the learning rate logarithmically.
 
-Use five Optuna trials.
+Run five Optuna trials.
 ```
 
-The GPT config agent converts these instructions into structured JSON.
+The GPT config agent converts these instructions into a structured experiment and search-space specification.
+
+The GPT output is validated deterministically before it is used.
+
+The agent does **not** directly write arbitrary executable Python.
+
+Instead:
+
+```text
+Natural-language request
+        |
+        v
+GPT structured specification
+        |
+        v
+Deterministic validation
+        |
+        v
+Python rendering
+        |
+        v
+Generated AutoLSTM Optuna callable
+```
 
 ---
 
-## Generated Configuration
+## Generated Optuna Callable
 
-The generated configuration contains:
+The validated search-space specification is deterministically rendered into:
+
+```text
+configs/generated_autolstm_config.py
+```
+
+The generated module contains an Optuna callable of the form:
+
+```python
+def autolstm_config(trial):
+    return {
+        "input_size": trial.suggest_categorical(
+            "input_size",
+            [8, 16, 32, 64, 128],
+        ),
+        "encoder_hidden_size": trial.suggest_categorical(
+            "encoder_hidden_size",
+            [16, 32, 64],
+        ),
+        "encoder_n_layers": trial.suggest_int(
+            "encoder_n_layers",
+            1,
+            3,
+        ),
+        "learning_rate": trial.suggest_float(
+            "learning_rate",
+            0.0001,
+            0.01,
+            log=True,
+        ),
+        ...
+    }
+```
+
+`autolstm_forecast.py` imports this callable directly:
+
+```python
+from configs.generated_autolstm_config import autolstm_config
+```
+
+and passes it to AutoLSTM:
+
+```python
+AutoLSTM(
+    h=horizon,
+    config=autolstm_config,
+    backend="optuna",
+    num_samples=num_samples,
+)
+```
+
+The previous generic configuration-interpreter layer is therefore no longer required.
+
+---
+
+## Experiment Metadata
+
+Experiment-level metadata is stored separately in:
+
+```text
+configs/generated_autolstm_experiment.json
+```
+
+Current fields include:
 
 ```text
 model
@@ -776,55 +993,24 @@ horizon
 validation_size
 num_samples
 frequency
-search_space
 ```
 
-The search space can describe parameters using four generic types:
-
-```text
-fixed
-categorical
-int
-float
-```
-
-Example:
-
-```json
-{
-  "learning_rate": {
-    "type": "float",
-    "low": 0.0001,
-    "high": 0.01,
-    "log": true
-  }
-}
-```
-
-The generic trainer interprets this as the corresponding Optuna operation.
-
-Conceptually:
-
-```text
-JSON specification
-        |
-        v
-trial.suggest_float(...)
-```
-
-The trainer therefore does not need a separately hard-coded Optuna statement for every experiment.
+This keeps experiment metadata separate from the generated Optuna search callable.
 
 ---
 
 ## Default Search-Space Behavior
 
-The configuration agent contains explicit defaults.
+The configuration agent contains explicit search defaults.
 
-If a user does not specify a parameter, the agent is instructed to preserve its predefined default rather than inventing a new range.
+If the user does not specify a parameter, the agent is instructed to preserve its predefined default rather than inventing a new range.
 
 Examples include:
 
 ```text
+input_size:
+[8, 16, 32, 64, 128]
+
 context_size:
 [5, 10]
 
@@ -844,29 +1030,35 @@ scaler:
 standard
 ```
 
-Generated configurations are also checked deterministically before being written to disk.
+Generated structured configurations are checked deterministically before the Python config callable is written.
 
 Validation checks include:
 
 - required top-level fields
 - unsupported extra fields
 - required search parameters
-- supported search-space types
+- supported Optuna suggestion methods
 - non-empty categorical values
-- valid low/high ranges
-- invalid simultaneous `log` and `step` settings
+- valid integer and floating-point bounds
+- valid logarithmic ranges
+- required experiment metadata
+- supported model family
 
 ---
 
 # AutoLSTM / Optuna Trainer
 
-`autolstm_forecast.py` reads:
+`autolstm_forecast.py` imports:
 
 ```text
-configs/generated_autolstm_config.json
+configs/generated_autolstm_config.py
 ```
 
-and constructs the Optuna search dynamically.
+and reads experiment metadata from:
+
+```text
+configs/generated_autolstm_experiment.json
+```
 
 The current workflow uses:
 
@@ -879,44 +1071,106 @@ with a temporal validation window inside pre-test data.
 
 The held-out test period is not used to select hyperparameters.
 
-After Optuna finishes:
+The generated `autolstm_config(trial)` callable is passed directly to AutoLSTM.
 
 ```text
-best configuration
+Natural-language request
         |
         v
-standard NeuralForecast LSTM
+GPT config agent
         |
         v
-fit once on pre-test data
+Validated structured specification
         |
         v
-rolling held-out evaluation
+Generated Optuna callable
         |
         v
-refit=False
+AutoLSTM / Optuna
+        |
+        v
+Best trial
 ```
 
-The current search uses only a small number of Optuna trials as a proof of concept.
+After tuning, the winning Optuna parameters are passed back through the same generated configuration callable using an Optuna fixed trial.
 
-Because Optuna samples configurations stochastically, the winning configuration and held-out metrics can differ between runs.
-
-The project therefore saves each run's:
-
-- Optuna trial table
-- winning configuration
-- validation loss
-- held-out forecasts
-- MAE by horizon
-- RMSE by horizon
-- forecast plots
-
-under:
+Conceptually:
 
 ```text
-forecast_results/
-plots/
+Optuna best_trial.params
+        |
+        v
+FixedTrial
+        |
+        v
+generated autolstm_config(...)
+        |
+        v
+complete winning LSTM configuration
 ```
+
+This reconstructs both tuned and fixed parameters without maintaining a second hard-coded configuration path.
+
+The resulting standard NeuralForecast `LSTM` is then evaluated over the held-out period with fixed learned parameters.
+
+---
+
+## Latest Successful AutoLSTM Run
+
+The most recent successful five-trial run selected:
+
+```text
+input_size: 8
+inference_input_size: -1
+encoder_hidden_size: 32
+encoder_n_layers: 3
+context_size: 10
+decoder_hidden_size: 64
+learning_rate: 0.0015634527143811453
+max_steps: 1000
+batch_size: 32
+random_seed: 2
+scaler_type: standard
+```
+
+Validation loss:
+
+```text
+0.045226
+```
+
+Held-out performance:
+
+| Forecast Horizon | Forecast Count | MAE | RMSE |
+| --- | ---: | ---: | ---: |
+| 1 week | 32 | 1.5201 | 3.2094 |
+| 2 weeks | 32 | 2.1854 | 4.9536 |
+| 3 weeks | 32 | 3.3229 | 7.1431 |
+| 4 weeks | 32 | 4.8684 | 11.1709 |
+
+These values represent one small stochastic Optuna run.
+
+The current five-trial search is intended primarily to validate the agentic configuration and execution workflow rather than establish definitive model-performance conclusions.
+
+Generated outputs include:
+
+```text
+forecast_results/autolstm_optuna_trials.csv
+forecast_results/autolstm_best_config.json
+forecast_results/autolstm_fixed_test_forecasts.csv
+forecast_results/autolstm_fixed_metrics_by_horizon.csv
+```
+
+Generated plots include:
+
+```text
+plots/autolstm_fixed_us_forecast_test_period.png
+plots/autolstm_fixed_metrics_by_horizon.png
+```
+
+### Held-Out Forecasts
+
+![AutoLSTM selected fixed LSTM held-out forecasts](plots/autolstm_fixed_us_forecast_test_period.png)
 
 ---
 
@@ -928,7 +1182,7 @@ The complete configuration-generation and training workflow can be started with:
 python run_agentic_lstm.py
 ```
 
-This performs:
+Conceptually, the workflow performs:
 
 ```text
 Natural-language experiment request
@@ -940,16 +1194,19 @@ GPT configuration generation
 Deterministic config validation
         |
         v
-generated_autolstm_config.json
+Generated experiment metadata
+        |
+        v
+Generated Optuna config callable
         |
         v
 AutoLSTM / Optuna tuning
         |
         v
-winning LSTM configuration
+Winning LSTM configuration
         |
         v
-fixed-weight held-out evaluation
+Fixed-weight held-out evaluation
 ```
 
 This is currently the closest part of the repository to the TS-Agent idea of an LLM orchestrating a conventional forecasting model rather than acting as the forecaster itself.
@@ -982,7 +1239,7 @@ plots/lstm_vs_autolstm_mae.png
 plots/lstm_vs_autolstm_rmse.png
 ```
 
-Because the current AutoLSTM workflow can generate different winning configurations across Optuna runs, comparison results should be interpreted as results for the saved run rather than as a universal AutoLSTM performance claim.
+Because the AutoLSTM search is stochastic and currently uses a small trial budget, comparison results should be interpreted as results for the saved run rather than as a universal AutoLSTM performance claim.
 
 ---
 
@@ -1010,7 +1267,7 @@ The repository distinguishes between:
 1. **development-time LLM assistance**
 2. **runtime LLM agents used by the application**
 
-Deterministic numerical calculations, model fitting, evaluation, preprocessing, and plotting are executed by Python.
+Deterministic numerical calculations, model fitting, evaluation, preprocessing, configuration validation, rendering, and plotting are executed by Python.
 
 ---
 
@@ -1029,6 +1286,7 @@ agentic-timeseries/
 ├── main_flu.py
 |
 ├── flu_trend_analysis.py
+├── flu_peak_choropleth.py
 |
 ├── lstm_forecast.py
 ├── autolstm_forecast.py
@@ -1042,7 +1300,9 @@ agentic-timeseries/
 |
 ├── configs/
 │   ├── autolstm_search_config.json
-│   └── generated_autolstm_config.json
+│   ├── generated_autolstm_config.json
+│   ├── generated_autolstm_config.py
+│   └── generated_autolstm_experiment.json
 |
 ├── images/
 │   └── agentic_timeseries_architecture.png
@@ -1062,6 +1322,15 @@ agentic-timeseries/
 ├── .gitignore
 ├── .env
 └── .venv/
+```
+
+The older JSON AutoLSTM configuration files are currently retained as development/reference artifacts.
+
+The active AutoLSTM workflow uses:
+
+```text
+generated_autolstm_config.py
+generated_autolstm_experiment.json
 ```
 
 ---
@@ -1112,6 +1381,22 @@ Runs deterministic national hospitalization-count trend analysis.
 
 ---
 
+## `flu_peak_choropleth.py`
+
+Generates state-level U.S. choropleth maps of influenza hospitalization peak epiweeks.
+
+The script:
+
+- finds each state's seasonal peak `weekly_rate`
+- converts the peak date to an epiweek
+- preserves seasonal chronology across the year boundary
+- uses one shared color scale across seasons
+- writes PNG maps for repository visualization
+- writes interactive HTML maps locally
+- saves a state-level peak table under `analysis_results/`
+
+---
+
 ## `lstm_forecast.py`
 
 Runs the manually configured fixed-weight LSTM baseline.
@@ -1120,13 +1405,27 @@ Runs the manually configured fixed-weight LSTM baseline.
 
 ## `config_agent.py`
 
-Uses GPT to convert a natural-language experiment specification into a validated AutoLSTM JSON configuration.
+Uses GPT to convert a natural-language experiment request into a structured experiment and Optuna search-space specification.
+
+The structured response is validated deterministically.
+
+Python then renders the validated search specification into:
+
+```text
+configs/generated_autolstm_config.py
+```
+
+and writes experiment metadata to:
+
+```text
+configs/generated_autolstm_experiment.json
+```
 
 ---
 
 ## `autolstm_forecast.py`
 
-Reads the generated configuration, dynamically constructs the Optuna search space, performs AutoLSTM tuning, fits the selected LSTM, evaluates the held-out period, and generates forecast outputs.
+Imports the generated Optuna config callable directly, performs AutoLSTM tuning, reconstructs the winning LSTM configuration, evaluates the selected fixed LSTM on the held-out period, and generates forecast outputs.
 
 ---
 
@@ -1136,10 +1435,12 @@ Orchestrates:
 
 ```text
 prompt
--> config agent
--> generated config
--> AutoLSTM trainer
--> evaluation
+-> GPT config agent
+-> deterministic validation
+-> generated Optuna callable
+-> AutoLSTM / Optuna
+-> fixed LSTM
+-> held-out evaluation
 ```
 
 ---
@@ -1221,6 +1522,8 @@ Major dependencies include:
 - `yfinance`
 - pandas
 - Matplotlib
+- Plotly
+- Kaleido
 - `epiweeks`
 - NeuralForecast
 - Optuna
@@ -1305,6 +1608,23 @@ python flu_trend_analysis.py
 python visualizations.py
 ```
 
+## State Peak Epiweek Choropleths
+
+```bash
+python flu_peak_choropleth.py
+```
+
+The choropleth script generates:
+
+```text
+plots/state_peak_epiweek_2022_2023.png
+plots/state_peak_epiweek_2023_2024.png
+plots/state_peak_epiweek_2024_2025.png
+plots/state_peak_epiweek_2025_2026.png
+```
+
+and interactive HTML versions locally.
+
 ## FluSight Deterministic Tests
 
 ```bash
@@ -1335,10 +1655,11 @@ python lstm_forecast.py
 python config_agent.py
 ```
 
-Generated configuration:
+Generated active configuration artifacts:
 
 ```text
-configs/generated_autolstm_config.json
+configs/generated_autolstm_config.py
+configs/generated_autolstm_experiment.json
 ```
 
 ## Run AutoLSTM Using Generated Config
@@ -1386,7 +1707,8 @@ Python remains responsible for:
 - data retrieval
 - preprocessing
 - deterministic feature construction
-- validation
+- agent-output validation
+- config rendering
 - plotting
 - model fitting
 - forecasting
@@ -1403,13 +1725,14 @@ The prototype currently implements a simplified subset of TS-Agent ideas.
 | Structured workflow | Python orchestration |
 | Specialized agents | GPT planning/configuration and Claude analysis |
 | External data/tools | `yfinance`, FluSight, Python preprocessing |
-| Structured communication | JSON agent outputs and configuration files |
+| Structured communication | JSON agent outputs and structured experiment specifications |
 | Execution feedback | Claude detail requests, validation/repair, model metrics |
 | Iterative analysis | Optional second-pass FluSight analysis |
 | Hyperparameter tuning | AutoLSTM with Optuna |
-| Agent-directed model setup | GPT-generated AutoLSTM search configuration |
+| Agent-directed model setup | GPT experiment specification → validated generated Optuna callable → AutoLSTM |
 | Deterministic execution | Python / NeuralForecast |
-| Auditability | JSON logs, saved configs, CSV results, plots, prompt log |
+| Epidemiological visualization | Epiweek plots and state-level choropleths |
+| Auditability | JSON logs, generated configs, CSV results, plots, prompt log |
 | Modular architecture | Separate agents, tools, forecasting, visualization, and orchestration |
 
 Important TS-Agent components that are **not yet implemented** include:
@@ -1421,7 +1744,7 @@ Important TS-Agent components that are **not yet implemented** include:
 - automated training-code modification
 - execution-based accept/revert code refinement
 - repeated multi-cycle model refinement
-- persistent long-term agent memory
+- persistent long-term model-performance memory
 
 The current config-agent workflow is therefore a limited but concrete step toward agent-directed forecasting execution.
 
@@ -1442,10 +1765,12 @@ Current limitations include:
 - winning AutoLSTM configurations may vary between runs
 - `context_size` is deprecated by the current NeuralForecast LSTM implementation
 - `inference_input_size=-1` may be automatically adjusted by NeuralForecast
-- there is no persistent long-term agent memory
+- state peak-epiweek maps are exploratory rather than a formal spatial-consistency analysis
+- the 2025-2026 FluSight season is partial in the local dataset
+- there is no persistent long-term model-performance memory
 - there is no vector database
 - there is no causal inference layer
-- forecasting remains national rather than sub-state
+- forecasting remains national rather than state-specific
 - model selection across architectures is not yet agent-controlled
 - probabilistic FluSight forecasting is not yet implemented
 - Weighted Interval Score is not yet evaluated
@@ -1468,9 +1793,11 @@ Current questions include:
 - When should an agent request more data?
 - How should model configuration be represented for agent control?
 - Can an LLM generate useful model-search spaces from experiment descriptions?
+- Can deterministic validation make agent-generated experiment configurations safer?
 - Can model execution feedback guide future agent decisions?
 - Should model choice depend on forecast horizon?
 - Should model choice depend on epidemic phase?
+- Are geographic influenza peak-timing patterns stable across seasons?
 - Can model disagreement provide useful uncertainty information?
 - When should several forecasting models be ensembled rather than selecting a single winner?
 - How should probabilistic forecasting be incorporated into the agentic workflow?
@@ -1481,6 +1808,9 @@ Current questions include:
 
 Possible extensions include:
 
+- quantify state-level peak-timing consistency across seasons
+- compare neighboring-state peak timing
+- cluster states by seasonal peak timing
 - increase the number of Optuna trials
 - remove deprecated LSTM configuration fields
 - compare multiple forecasting architectures
@@ -1515,13 +1845,14 @@ Python
 -> deterministic numerical layer
 -> data processing
 -> validation
+-> configuration rendering
 -> visualization
 -> forecasting
 -> evaluation
 
 LLMs
 -> planning
--> configuration
+-> experiment specification
 -> interpretation
 -> feedback
 ```

@@ -6,3 +6,6 @@ data/
 forecast_results/
 lightning_logs/
 analysis_results/
+
+# Interactive Plotly map outputs
+plots/state_peak_epiweek_*.html
