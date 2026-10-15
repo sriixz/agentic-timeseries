@@ -9,3 +9,4 @@ analysis_results/
 
 # Interactive Plotly map outputs
 plots/state_peak_epiweek_*.html
+plots/peak_sanity_*.png
