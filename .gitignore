@@ -14,3 +14,7 @@ plots/peak_sanity_*.png
 plots/peak_feature_comparison_*.png
 plots/peak_window_comparison_[123]w.png
 plots/state_peak_probability_*.png
+
+# Per-location forecast diagnostic plots
+plots/multilocation_informer_*_4w.png
+plots/multilocation_peak_feature_*_4w.png
