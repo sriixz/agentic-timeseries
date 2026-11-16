@@ -1,0 +1,116 @@
+{
+  "experiment": {
+    "model": "Informer",
+    "location": "US",
+    "target": "weekly_rate",
+    "train_end": "2025-09-30",
+    "test_start": "2025-10-01",
+    "test_end": "2026-05-31",
+    "horizon": 4,
+    "validation_size": 12,
+    "num_samples": 8,
+    "frequency": "W-SAT",
+    "use_ed": true
+  },
+  "first_round_best": {
+    "validation_mean_rmse": 0.043599287309673496,
+    "config": {
+      "input_size": 8,
+      "hidden_size": 32,
+      "conv_hidden_size": 128,
+      "n_head": 4,
+      "encoder_layers": 1,
+      "decoder_layers": 2,
+      "dropout": 0.1497555756553709,
+      "learning_rate": 0.0019776130193344737,
+      "max_steps": 500,
+      "batch_size": 16,
+      "random_seed": 4,
+      "scaler_type": "standard"
+    },
+    "num_trials": 8,
+    "validation_weeks": 12,
+    "objective": "mean RMSE across forecast horizons 1-4"
+  },
+  "agent_refinement": {
+    "assessment": "Validation evidence strongly favors a compact Informer with input_size=8, hidden_size=32, encoder_layers=1, decoder_layers=2, batch_size=16, and n_head in the 4-8 range; the best trial also used a moderate dropout (~0.15) and learning_rate near 0.002. Larger input windows, larger hidden sizes, very low learning rates, and 2-layer encoders generally performed worse on validation.",
+    "refinement_reason": "This second search narrows the space around the consistently strong region identified in round 1 while keeping the current winner reachable. It focuses computation on nearby configurations that can test whether the best setting is robust or whether small adjustments to attention heads, convolution width, dropout, and learning rate can further improve validation RMSE, without expanding the model family or adding new parameters.",
+    "search_space": {
+      "input_size": {
+        "method": "suggest_categorical",
+        "values": [
+          8,
+          12,
+          16
+        ]
+      },
+      "hidden_size": {
+        "method": "suggest_categorical",
+        "values": [
+          32,
+          64
+        ]
+      },
+      "conv_hidden_size": {
+        "method": "suggest_categorical",
+        "values": [
+          64,
+          128
+        ]
+      },
+      "n_head": {
+        "method": "suggest_categorical",
+        "values": [
+          2,
+          4,
+          8
+        ]
+      },
+      "encoder_layers": {
+        "method": "suggest_int",
+        "low": 1,
+        "high": 2
+      },
+      "decoder_layers": {
+        "method": "suggest_int",
+        "low": 1,
+        "high": 2
+      },
+      "dropout": {
+        "method": "suggest_float",
+        "low": 0.0,
+        "high": 0.18,
+        "log": false
+      },
+      "learning_rate": {
+        "method": "suggest_float",
+        "low": 0.0005,
+        "high": 0.003,
+        "log": true
+      },
+      "max_steps": {
+        "method": "suggest_categorical",
+        "values": [
+          500,
+          1000
+        ]
+      },
+      "batch_size": {
+        "method": "suggest_categorical",
+        "values": [
+          16,
+          32
+        ]
+      },
+      "random_seed": {
+        "method": "suggest_int",
+        "low": 1,
+        "high": 10
+      },
+      "scaler_type": {
+        "method": "fixed",
+        "value": "standard"
+      }
+    }
+  }
+}
