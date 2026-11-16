@@ -17,8 +17,12 @@ OUTPUT_CSV = Path(
     "forecast_results/lstm_vs_informer_nov_feb.csv"
 )
 
+SUMMARY_CSV = Path(
+    "forecast_results/lstm_vs_informer_nov_feb_horizon_summary.csv"
+)
+
 OUTPUT_PLOT = Path(
-    "plots/lstm_vs_informer_nov_feb_4w.png"
+    "plots/lstm_vs_informer_nov_feb_horizons.png"
 )
 
 START_DATE = pd.Timestamp("2025-11-01")
@@ -71,14 +75,6 @@ def detect_cols(df, model_name):
         )
     ]
 
-    print(
-        f"\n{model_name} numeric candidates:"
-    )
-
-    print(
-        numeric
-    )
-
     ed_candidates = [
         col
         for col in numeric
@@ -105,25 +101,10 @@ def detect_cols(df, model_name):
             f"{baseline_candidates}"
         )
 
-    baseline_col = (
-        baseline_candidates[0]
+    return (
+        baseline_candidates[0],
+        ed_candidates[0],
     )
-
-    ed_col = (
-        ed_candidates[0]
-    )
-
-    print(
-        f"{model_name} baseline: "
-        f"{baseline_col}"
-    )
-
-    print(
-        f"{model_name} + ED: "
-        f"{ed_col}"
-    )
-
-    return baseline_col, ed_col
 
 
 def prepare(df):
@@ -161,10 +142,12 @@ def prepare(df):
 
     df = df[
         (
-            df["ds"] >= START_DATE
+            df["ds"]
+            >= START_DATE
         )
         & (
-            df["ds"] <= END_DATE
+            df["ds"]
+            <= END_DATE
         )
     ].copy()
 
@@ -175,11 +158,9 @@ def summarize_model(
     df,
     model_name,
 ):
-    baseline_col, ed_col = (
-        detect_cols(
-            df,
-            model_name,
-        )
+    baseline_col, ed_col = detect_cols(
+        df,
+        model_name,
     )
 
     rows = []
@@ -187,7 +168,7 @@ def summarize_model(
     for (
         location,
         location_name,
-        horizon
+        horizon,
     ), group in df.groupby(
         [
             "location",
@@ -195,6 +176,7 @@ def summarize_model(
             "horizon",
         ]
     ):
+
         group = (
             group
             .dropna(
@@ -204,9 +186,13 @@ def summarize_model(
                     ed_col,
                 ]
             )
-            .sort_values("ds")
+            .sort_values(
+                "ds"
+            )
             .drop_duplicates(
-                subset=["ds"],
+                subset=[
+                    "ds"
+                ],
                 keep="last",
             )
         )
@@ -281,15 +267,261 @@ def summarize_model(
     )
 
 
+def build_horizon_summary(
+    merged,
+):
+    rows = []
+
+    for horizon in sorted(
+        merged["horizon"].unique()
+    ):
+
+        scoped = merged[
+            merged["horizon"]
+            == horizon
+        ].copy()
+
+        scoped[
+            "informer_advantage_pct"
+        ] = (
+            (
+                scoped[
+                    "lstm_ed_rmse"
+                ]
+                - scoped[
+                    "informer_ed_rmse"
+                ]
+            )
+            / scoped[
+                "lstm_ed_rmse"
+            ]
+            * 100.0
+        )
+
+        rows.append(
+            {
+                "horizon":
+                    int(horizon),
+
+                "states":
+                    len(scoped),
+
+                "lstm_ed_mean_rmse":
+                    float(
+                        scoped[
+                            "lstm_ed_rmse"
+                        ].mean()
+                    ),
+
+                "informer_ed_mean_rmse":
+                    float(
+                        scoped[
+                            "informer_ed_rmse"
+                        ].mean()
+                    ),
+
+                "informer_lower_count":
+                    int(
+                        (
+                            scoped[
+                                "informer_ed_rmse"
+                            ]
+                            < scoped[
+                                "lstm_ed_rmse"
+                            ]
+                        ).sum()
+                    ),
+
+                "median_informer_advantage_pct":
+                    float(
+                        scoped[
+                            "informer_advantage_pct"
+                        ].median()
+                    ),
+            }
+        )
+
+    summary = pd.DataFrame(
+        rows
+    )
+
+    average_row = {
+        "horizon":
+            "Average",
+
+        "states":
+            int(
+                round(
+                    summary[
+                        "states"
+                    ].mean()
+                )
+            ),
+
+        "lstm_ed_mean_rmse":
+            float(
+                summary[
+                    "lstm_ed_mean_rmse"
+                ].mean()
+            ),
+
+        "informer_ed_mean_rmse":
+            float(
+                summary[
+                    "informer_ed_mean_rmse"
+                ].mean()
+            ),
+
+        "informer_lower_count":
+            float(
+                summary[
+                    "informer_lower_count"
+                ].mean()
+            ),
+
+        "median_informer_advantage_pct":
+            float(
+                summary[
+                    "median_informer_advantage_pct"
+                ].mean()
+            ),
+    }
+
+    summary_out = pd.concat(
+        [
+            summary,
+            pd.DataFrame(
+                [average_row]
+            ),
+        ],
+        ignore_index=True,
+    )
+
+    return summary_out
+
+
+def make_plot(
+    summary,
+):
+    plot_df = summary[
+        summary[
+            "horizon"
+        ]
+        != "Average"
+    ].copy()
+
+    x = np.arange(
+        len(plot_df)
+    )
+
+    width = 0.35
+
+    fig, ax = plt.subplots(
+        figsize=(
+            10,
+            6,
+        )
+    )
+
+    ax.bar(
+        x - width / 2,
+        plot_df[
+            "lstm_ed_mean_rmse"
+        ],
+        width,
+        label="LSTM + ED",
+    )
+
+    ax.bar(
+        x + width / 2,
+        plot_df[
+            "informer_ed_mean_rmse"
+        ],
+        width,
+        label="Informer + ED",
+    )
+
+    ax.set_xticks(
+        x
+    )
+
+    ax.set_xticklabels(
+        [
+            f"{int(h)}-week"
+            for h in plot_df[
+                "horizon"
+            ]
+        ]
+    )
+
+    ax.set_ylabel(
+        "Mean RMSE across states"
+    )
+
+    ax.set_xlabel(
+        "Forecast horizon"
+    )
+
+    ax.set_title(
+        "Active-Season Forecast Error: "
+        "LSTM + ED vs Informer + ED\n"
+        "November 2025 through February 2026"
+    )
+
+    ax.grid(
+        axis="y",
+        alpha=0.25,
+    )
+
+    ax.legend()
+
+    for index, row in enumerate(
+        plot_df.itertuples(
+            index=False
+        )
+    ):
+
+        ax.text(
+            index,
+            max(
+                row.lstm_ed_mean_rmse,
+                row.informer_ed_mean_rmse,
+            )
+            + 0.25,
+            (
+                f"Informer lower: "
+                f"{int(row.informer_lower_count)}"
+                f"/{int(row.states)}"
+            ),
+            ha="center",
+            fontsize=9,
+        )
+
+    fig.tight_layout()
+
+    fig.savefig(
+        OUTPUT_PLOT,
+        dpi=200,
+        bbox_inches="tight",
+    )
+
+    plt.close(
+        fig
+    )
+
+
 def main():
+
     if not LSTM_FORECASTS.exists():
         raise FileNotFoundError(
-            f"Missing: {LSTM_FORECASTS}"
+            f"Missing: "
+            f"{LSTM_FORECASTS}"
         )
 
     if not INFORMER_FORECASTS.exists():
         raise FileNotFoundError(
-            f"Missing: {INFORMER_FORECASTS}"
+            f"Missing: "
+            f"{INFORMER_FORECASTS}"
         )
 
     lstm = prepare(
@@ -312,18 +544,14 @@ def main():
         )
     )
 
-    lstm_summary = (
-        summarize_model(
-            lstm,
-            "lstm",
-        )
+    lstm_summary = summarize_model(
+        lstm,
+        "lstm",
     )
 
-    informer_summary = (
-        summarize_model(
-            informer,
-            "informer",
-        )
+    informer_summary = summarize_model(
+        informer,
+        "informer",
     )
 
     merged = lstm_summary.merge(
@@ -352,270 +580,73 @@ def main():
         index=False,
     )
 
+    horizon_summary = (
+        build_horizon_summary(
+            merged
+        )
+    )
+
+    horizon_summary.to_csv(
+        SUMMARY_CSV,
+        index=False,
+    )
+
     print(
-        "\nLSTM vs Informer — "
+        "\nLSTM vs Informer - "
         "Nov 2025 through Feb 2026"
     )
 
     print(
-        "================================="
-    )
-
-    for horizon in sorted(
-        merged["horizon"]
-        .unique()
-    ):
-        scoped = merged[
-            merged["horizon"]
-            == horizon
-        ]
-
-        print(
-            f"\n{horizon}-week horizon"
-        )
-
-        print(
-            "-" * 40
-        )
-
-        print(
-            "LSTM baseline RMSE: "
-            f"{scoped['lstm_baseline_rmse'].mean():.3f}"
-        )
-
-        print(
-            "LSTM + ED RMSE: "
-            f"{scoped['lstm_ed_rmse'].mean():.3f}"
-        )
-
-        print(
-            "LSTM median ED improvement: "
-            f"{scoped['lstm_ed_improvement_pct'].median():+.1f}%"
-        )
-
-        print(
-            "Informer baseline RMSE: "
-            f"{scoped['informer_baseline_rmse'].mean():.3f}"
-        )
-
-        print(
-            "Informer + ED RMSE: "
-            f"{scoped['informer_ed_rmse'].mean():.3f}"
-        )
-
-        print(
-            "Informer median ED improvement: "
-            f"{scoped['informer_ed_improvement_pct'].median():+.1f}%"
-        )
-
-        print(
-            "Informer + ED lower RMSE than "
-            "LSTM + ED in "
-            f"{int((scoped['informer_ed_rmse'] < scoped['lstm_ed_rmse']).sum())}"
-            f"/{len(scoped)} states"
-        )
-
-    four_week = merged[
-        merged["horizon"] == 4
-    ].copy()
-
-    four_week[
-        "informer_minus_lstm_ed_rmse"
-    ] = (
-        four_week[
-            "informer_ed_rmse"
-        ]
-        - four_week[
-            "lstm_ed_rmse"
-        ]
-    )
-
-    four_week[
-        "informer_advantage_pct"
-    ] = (
-        (
-            four_week[
-                "lstm_ed_rmse"
-            ]
-            - four_week[
-                "informer_ed_rmse"
-            ]
-        )
-        / four_week[
-            "lstm_ed_rmse"
-        ]
-        * 100.0
+        "======================================"
     )
 
     print(
-        "\n4-week Nov–Feb comparison"
-    )
-
-    print(
-        "========================="
-    )
-
-    print(
-        "States compared: "
-        f"{len(four_week)}"
-    )
-
-    print(
-        "Informer + ED lower RMSE: "
-        f"{int((four_week['informer_ed_rmse'] < four_week['lstm_ed_rmse']).sum())}"
-        f"/{len(four_week)}"
-    )
-
-    print(
-        "Median Informer advantage "
-        "over LSTM + ED: "
-        f"{four_week['informer_advantage_pct'].median():+.1f}%"
-    )
-
-    print(
-        "\nLargest Informer advantages"
-    )
-
-    print(
-        four_week[
-            [
-                "location_name",
-                "lstm_ed_rmse",
-                "informer_ed_rmse",
-                "informer_advantage_pct",
-            ]
-        ]
-        .sort_values(
-            "informer_advantage_pct",
-            ascending=False,
-        )
-        .head(10)
-        .to_string(
+        horizon_summary.to_string(
             index=False,
             formatters={
-                "lstm_ed_rmse":
+                "lstm_ed_mean_rmse":
                     "{:.3f}".format,
 
-                "informer_ed_rmse":
+                "informer_ed_mean_rmse":
                     "{:.3f}".format,
 
-                "informer_advantage_pct":
-                    "{:+.1f}".format,
+                "informer_lower_count":
+                    (
+                        lambda value:
+                        (
+                            f"{value:.1f}"
+                            if isinstance(
+                                value,
+                                float,
+                            )
+                            and not value.is_integer()
+                            else f"{int(value)}"
+                        )
+                    ),
+
+                "median_informer_advantage_pct":
+                    "{:+.1f}%".format,
             },
         )
     )
 
-    print(
-        "\nLargest LSTM advantages"
+    make_plot(
+        horizon_summary
     )
 
     print(
-        four_week[
-            [
-                "location_name",
-                "lstm_ed_rmse",
-                "informer_ed_rmse",
-                "informer_advantage_pct",
-            ]
-        ]
-        .sort_values(
-            "informer_advantage_pct"
-        )
-        .head(10)
-        .to_string(
-            index=False,
-            formatters={
-                "lstm_ed_rmse":
-                    "{:.3f}".format,
-
-                "informer_ed_rmse":
-                    "{:.3f}".format,
-
-                "informer_advantage_pct":
-                    "{:+.1f}".format,
-            },
-        )
-    )
-
-    # --------------------------------
-    # 4-week state scatter
-    # --------------------------------
-
-    fig, ax = plt.subplots(
-        figsize=(9, 8)
-    )
-
-    ax.scatter(
-        four_week[
-            "lstm_ed_rmse"
-        ],
-        four_week[
-            "informer_ed_rmse"
-        ],
-        s=60,
-        alpha=0.8,
-    )
-
-    max_val = max(
-        four_week[
-            "lstm_ed_rmse"
-        ].max(),
-        four_week[
-            "informer_ed_rmse"
-        ].max(),
-    )
-
-    ax.plot(
-        [
-            0,
-            max_val,
-        ],
-        [
-            0,
-            max_val,
-        ],
-        linestyle="--",
-        linewidth=1.5,
-        label="Equal RMSE",
-    )
-
-    ax.set_xlabel(
-        "LSTM + ED RMSE "
-        "(Nov 2025–Feb 2026)"
-    )
-
-    ax.set_ylabel(
-        "Informer + ED RMSE "
-        "(Nov 2025–Feb 2026)"
-    )
-
-    ax.set_title(
-        "Active-Season 4-Week Forecast Error: "
-        "LSTM vs Informer"
-    )
-
-    ax.grid(
-        alpha=0.25
-    )
-
-    ax.legend()
-
-    fig.tight_layout()
-
-    fig.savefig(
-        OUTPUT_PLOT,
-        dpi=200,
-        bbox_inches="tight",
-    )
-
-    plt.close(fig)
-
-    print(
-        f"\nSaved: {OUTPUT_CSV}"
+        f"\nSaved: "
+        f"{OUTPUT_CSV}"
     )
 
     print(
-        f"Saved: {OUTPUT_PLOT}"
+        f"Saved: "
+        f"{SUMMARY_CSV}"
+    )
+
+    print(
+        f"Saved: "
+        f"{OUTPUT_PLOT}"
     )
 
 
