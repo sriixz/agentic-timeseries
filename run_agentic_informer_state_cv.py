@@ -1788,7 +1788,19 @@ def main():
 
     # The best trial was already evaluated across all folds.
     all_trial_metrics = pd.read_csv(
-        TRIAL_STATE_METRICS_PATH
+        TRIAL_STATE_METRICS_PATH,
+        dtype={
+            "state_code": str,
+        },
+    )
+
+    all_trial_metrics[
+        "state_code"
+    ] = (
+        all_trial_metrics[
+            "state_code"
+        ]
+        .str.zfill(2)
     )
 
     best_state_metrics = (
