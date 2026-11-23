@@ -1,8 +1,8 @@
-\# Agentic Informer Forecasting Workflow
+# Agentic Informer Forecasting Workflow
 
 
 
-\## 1. Goal
+## 1. Goal
 
 
 
@@ -18,7 +18,7 @@ The basic workflow is:
 
 
 
-\*\*agent proposes search space → Optuna trains/evaluates candidate models → deterministic validation metrics are computed → best configuration is selected → agent reviews validation results → agent proposes a refined search → refined candidates are evaluated\*\*
+**agent proposes search space → Optuna trains/evaluates candidate models → deterministic validation metrics are computed → best configuration is selected → agent reviews validation results → agent proposes a refined search → refined candidates are evaluated**
 
 
 
@@ -26,11 +26,11 @@ The final forecasting model remains an Informer throughout the experiment.
 
 
 
-\---
+---
 
 
 
-\## 2. Forecasting task
+## 2. Forecasting task
 
 
 
@@ -38,7 +38,7 @@ Target:
 
 
 
-\- Weekly influenza hospitalization rate (`weekly\_rate`)
+- Weekly influenza hospitalization rate (`weekly_rate`)
 
 
 
@@ -46,13 +46,13 @@ Forecast horizons:
 
 
 
-\- 1 week ahead
+- 1 week ahead
 
-\- 2 weeks ahead
+- 2 weeks ahead
 
-\- 3 weeks ahead
+- 3 weeks ahead
 
-\- 4 weeks ahead
+- 4 weeks ahead
 
 
 
@@ -60,7 +60,7 @@ Primary model:
 
 
 
-\- NeuralForecast Informer
+- NeuralForecast Informer
 
 
 
@@ -68,7 +68,7 @@ Exogenous feature:
 
 
 
-\- Emergency-department influenza visit proportion
+- Emergency-department influenza visit proportion
 
 
 
@@ -88,11 +88,11 @@ This ensures that for forecast horizons 1 through 4, the ED value associated wit
 
 
 
-\---
+---
 
 
 
-\## 3. Manual Informer workflow
+## 3. Manual Informer workflow
 
 
 
@@ -100,27 +100,27 @@ The manually selected Informer configuration used:
 
 
 
-\- input size: 12 weeks
+- input size: 12 weeks
 
-\- hidden size: 64
+- hidden size: 64
 
-\- attention heads: 4
+- attention heads: 4
 
-\- encoder layers: 2
+- encoder layers: 2
 
-\- decoder layers: 1
+- decoder layers: 1
 
-\- dropout: 0.05
+- dropout: 0.05
 
-\- learning rate: 0.0001
+- learning rate: 0.0001
 
-\- batch size: 32
+- batch size: 32
 
-\- maximum training steps: 1000
+- maximum training steps: 1000
 
-\- random seed: 2
+- random seed: 2
 
-\- standard scaling
+- standard scaling
 
 
 
@@ -132,15 +132,15 @@ The model was trained on historical observations and evaluated using rolling for
 
 
 
-\---
+---
 
 
 
-\## 4. Agentic round 1
+## 4. Agentic round 1
 
 
 
-\### 4.1 Agent role
+### 4.1 Agent role
 
 
 
@@ -152,9 +152,9 @@ The agent outputs structured JSON describing:
 
 
 
-\- experiment metadata
+- experiment metadata
 
-\- Optuna search-space definitions
+- Optuna search-space definitions
 
 
 
@@ -166,7 +166,7 @@ The LLM does not directly execute arbitrary model code.
 
 
 
-\### 4.2 Round-1 search space
+### 4.2 Round-1 search space
 
 
 
@@ -174,29 +174,29 @@ The initial agent-generated search included:
 
 
 
-\- input size: 8, 12, 16, or 24
+- input size: 8, 12, 16, or 24
 
-\- hidden size: 32, 64, or 128
+- hidden size: 32, 64, or 128
 
-\- convolution hidden size: 32, 64, or 128
+- convolution hidden size: 32, 64, or 128
 
-\- attention heads: 2, 4, or 8
+- attention heads: 2, 4, or 8
 
-\- encoder layers: 1–3
+- encoder layers: 1–3
 
-\- decoder layers: 1–2
+- decoder layers: 1–2
 
-\- dropout: 0.0–0.2
+- dropout: 0.0–0.2
 
-\- learning rate: 0.00005–0.005 on a log scale
+- learning rate: 0.00005–0.005 on a log scale
 
-\- maximum steps: 500 or 1000
+- maximum steps: 500 or 1000
 
-\- batch size: 16 or 32
+- batch size: 16 or 32
 
-\- random seed: initially searched from 1–10
+- random seed: initially searched from 1–10
 
-\- scaler: fixed to standard
+- scaler: fixed to standard
 
 
 
@@ -204,7 +204,7 @@ Optuna evaluated eight candidate configurations.
 
 
 
-\### 4.3 Validation objective
+### 4.3 Validation objective
 
 
 
@@ -220,7 +220,7 @@ The objective supplied to Optuna was:
 
 
 
-\*\*mean validation RMSE across horizons 1–4\*\*
+**mean validation RMSE across horizons 1–4**
 
 
 
@@ -228,7 +228,7 @@ Each horizon therefore received equal weight during model selection.
 
 
 
-\### 4.4 Round-1 selected configuration
+### 4.4 Round-1 selected configuration
 
 
 
@@ -236,29 +236,29 @@ The first agentic search selected:
 
 
 
-\- input size: 8
+- input size: 8
 
-\- hidden size: 32
+- hidden size: 32
 
-\- convolution hidden size: 128
+- convolution hidden size: 128
 
-\- attention heads: 4
+- attention heads: 4
 
-\- encoder layers: 1
+- encoder layers: 1
 
-\- decoder layers: 2
+- decoder layers: 2
 
-\- dropout: approximately 0.150
+- dropout: approximately 0.150
 
-\- learning rate: approximately 0.00198
+- learning rate: approximately 0.00198
 
-\- maximum steps: 500
+- maximum steps: 500
 
-\- batch size: 16
+- batch size: 16
 
-\- random seed: 4
+- random seed: 4
 
-\- scaler: standard
+- scaler: standard
 
 
 
@@ -270,29 +270,29 @@ In particular, the agent-selected configuration used:
 
 
 
-\- a shorter observation window,
+- a shorter observation window,
 
-\- a smaller hidden representation,
+- a smaller hidden representation,
 
-\- fewer encoder layers,
+- fewer encoder layers,
 
-\- more decoder layers,
+- more decoder layers,
 
-\- substantially more dropout,
+- substantially more dropout,
 
-\- a much higher learning rate,
+- a much higher learning rate,
 
-\- a smaller batch size,
+- a smaller batch size,
 
-\- and half as many training steps.
-
-
-
-\---
+- and half as many training steps.
 
 
 
-\## 5. Held-out evaluation
+---
+
+
+
+## 5. Held-out evaluation
 
 
 
@@ -308,7 +308,7 @@ The held-out results were not used by the configuration agent during round-1 sel
 
 
 
-\### Manual vs round-1 agentic Informer
+### Manual vs round-1 agentic Informer
 
 
 
@@ -330,11 +330,11 @@ Mean RMSE across horizons:
 
 
 
-\- Manual Informer: 5.1154
+- Manual Informer: 5.1154
 
-\- Agent-selected Informer: 2.8319
+- Agent-selected Informer: 2.8319
 
-\- Relative reduction: 44.6%
+- Relative reduction: 44.6%
 
 
 
@@ -342,11 +342,11 @@ The first agentic search therefore produced lower held-out RMSE at all four fore
 
 
 
-\---
+---
 
 
 
-\## 6. Agentic refinement round
+## 6. Agentic refinement round
 
 
 
@@ -358,17 +358,17 @@ The refinement agent received:
 
 
 
-\- the round-1 winning configuration,
+- the round-1 winning configuration,
 
-\- the validation RMSE for every completed round-1 Optuna trial,
+- the validation RMSE for every completed round-1 Optuna trial,
 
-\- the horizon-specific validation RMSE values,
+- the horizon-specific validation RMSE values,
 
-\- and the original search space.
+- and the original search space.
 
 
 
-It did \*\*not\*\* receive held-out 2025–26 test performance.
+It did **not** receive held-out 2025–26 test performance.
 
 
 
@@ -384,11 +384,11 @@ The random seed was fixed to 4 during the refined search so that seed selection 
 
 
 
-\---
+---
 
 
 
-\## 7. Round-2 result
+## 7. Round-2 result
 
 
 
@@ -396,29 +396,29 @@ The refined search selected:
 
 
 
-\- input size: 8
+- input size: 8
 
-\- hidden size: 64
+- hidden size: 64
 
-\- convolution hidden size: 128
+- convolution hidden size: 128
 
-\- attention heads: 2
+- attention heads: 2
 
-\- encoder layers: 1
+- encoder layers: 1
 
-\- decoder layers: 1
+- decoder layers: 1
 
-\- dropout: approximately 0.084
+- dropout: approximately 0.084
 
-\- learning rate: approximately 0.000718
+- learning rate: approximately 0.000718
 
-\- maximum steps: 500
+- maximum steps: 500
 
-\- batch size: 16
+- batch size: 16
 
-\- random seed: 4
+- random seed: 4
 
-\- scaler: standard
+- scaler: standard
 
 
 
@@ -426,9 +426,9 @@ Validation mean RMSE improved slightly from approximately:
 
 
 
-\- round 1: 0.0436
+- round 1: 0.0436
 
-\- round 2: 0.0422
+- round 2: 0.0422
 
 
 
@@ -440,11 +440,11 @@ Mean held-out RMSE:
 
 
 
-\- Manual Informer: approximately 5.11
+- Manual Informer: approximately 5.11
 
-\- Round-1 agentic Informer: approximately 2.83
+- Round-1 agentic Informer: approximately 2.83
 
-\- Round-2 refined Informer: approximately 3.92
+- Round-2 refined Informer: approximately 3.92
 
 
 
@@ -452,11 +452,11 @@ The round-2 model still outperformed the manual configuration, but it did not ou
 
 
 
-\---
+---
 
 
 
-\## 8. Current interpretation
+## 8. Current interpretation
 
 
 
@@ -476,9 +476,9 @@ This creates a mismatch between:
 
 
 
-\- the environment used to choose and refine hyperparameters, and
+- the environment used to choose and refine hyperparameters, and
 
-\- the active-season forecasting conditions that dominate the held-out evaluation period.
+- the active-season forecasting conditions that dominate the held-out evaluation period.
 
 
 
@@ -490,15 +490,15 @@ This suggests that the main bottleneck is no longer simply the hyperparameter se
 
 
 
-\---
+---
 
 
 
-\## 9. Separation of responsibilities
+## 9. Separation of responsibilities
 
 
 
-\### LLM agent
+### LLM agent
 
 
 
@@ -506,19 +506,19 @@ The agent is responsible for:
 
 
 
-\- interpreting the forecasting task,
+- interpreting the forecasting task,
 
-\- proposing a valid hyperparameter search space,
+- proposing a valid hyperparameter search space,
 
-\- reviewing deterministic validation results,
+- reviewing deterministic validation results,
 
-\- identifying promising or weak regions of the search,
+- identifying promising or weak regions of the search,
 
-\- and proposing a refined search space.
+- and proposing a refined search space.
 
 
 
-\### Optuna
+### Optuna
 
 
 
@@ -526,17 +526,17 @@ Optuna is responsible for:
 
 
 
-\- sampling concrete configurations from the approved search space,
+- sampling concrete configurations from the approved search space,
 
-\- running candidate experiments,
+- running candidate experiments,
 
-\- tracking validation performance,
+- tracking validation performance,
 
-\- and identifying the configuration with the lowest validation objective.
+- and identifying the configuration with the lowest validation objective.
 
 
 
-\### Deterministic Python pipeline
+### Deterministic Python pipeline
 
 
 
@@ -544,21 +544,21 @@ The forecasting pipeline is responsible for:
 
 
 
-\- loading and preprocessing the data,
+- loading and preprocessing the data,
 
-\- constructing leakage-safe ED features,
+- constructing leakage-safe ED features,
 
-\- training Informer models,
+- training Informer models,
 
-\- generating forecasts,
+- generating forecasts,
 
-\- calculating MAE and RMSE,
+- calculating MAE and RMSE,
 
-\- enforcing train/validation/test separation,
+- enforcing train/validation/test separation,
 
-\- validating agent-generated configuration schemas,
+- validating agent-generated configuration schemas,
 
-\- and saving experiment outputs.
+- and saving experiment outputs.
 
 
 
@@ -566,11 +566,11 @@ The LLM is therefore an orchestration and refinement component rather than the n
 
 
 
-\---
+---
 
 
 
-\## 10. Proposed next validation experiment
+## 10. Proposed next validation experiment
 
 
 
@@ -602,11 +602,11 @@ This experiment will test whether the agentic tuning result remains robust when 
 
 
 
-\---
+---
 
 
 
-\## 11. Current conclusion
+## 11. Current conclusion
 
 
 
@@ -622,7 +622,7 @@ A stronger agentic forecasting framework therefore requires both:
 
 
 
-\- effective model/configuration search, and
+- effective model/configuration search, and
 
-\- a validation procedure that accurately represents the deployment conditions the model will face.
+- a validation procedure that accurately represents the deployment conditions the model will face.
 
